@@ -35,8 +35,18 @@ def load_config(config_path='config.json'):
 
 def set_seed(seed):
     """Fixe la seed pour la reproductibilité."""
+    # Vérifier si la seed est déjà initialisée pour éviter les doubles initialisations
+    try:
+        current_seed = np.random.get_state()[1][0]
+        if current_seed == seed:
+            print(f"🌱 Seed {seed} déjà initialisée, pas de double init")
+            return
+    except:
+        pass  # Si erreur, procéder normalement
+    
     np.random.seed(seed)
     random.seed(seed)
+    print(f"🌱 Seed initialisée : {seed}")
 
 def verify_weight_matrix(w, strate_id, epsilon=1e-8):
     """

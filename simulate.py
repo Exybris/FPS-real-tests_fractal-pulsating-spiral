@@ -83,13 +83,17 @@ def run_simulation(config_path, mode="FPS"):
     
     # ---- 1. SEED : reproductibilité, log dans seeds.txt ----
     SEED = config['system']['seed']
+    # CORRECTION: Assurer cohérence seeds entre run principal et batch
+    print(f"🌱 Initialisation seed: {SEED} pour mode {mode}")
     np.random.seed(SEED)
     import random; random.seed(SEED)
+    
+    # Log de la seed pour traçabilité
     if hasattr(utils, "log_seed"): 
         utils.log_seed(SEED)
     else: 
         with open("seeds.txt", "a") as f:
-            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} | SEED = {SEED}\n")
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} | SEED = {SEED} | Mode = {mode}\n")
     
     # ---- 2. Initialisation : strates, état, logs, dirs ----
     state = init.init_strates(config)
@@ -232,20 +236,33 @@ def run_fps_simulation(config, state, loggers):
             # ----------- 2. CALCULS DYNAMIQUE FPS --------------
             # a) Amplitude, fréquence, phase, latence par strate (avec statique/dynamique, config.json)
             try:
-                An_t = dynamics.compute_An(t, state, In_t, config) if hasattr(dynamics, 'compute_An') else np.ones(N)
+                An_t = dynamics.compute_An(t, state, In_t, config)
                 # Passer l'historique dans la config pour compute_fn
                 config_with_history = config.copy()
                 config_with_history['history'] = history
-                fn_t = dynamics.compute_fn(t, state, An_t, config_with_history) if hasattr(dynamics, 'compute_fn') else np.ones(N)
+                fn_t = dynamics.compute_fn(t, state, An_t, config_with_history)
                 # Calculer et stocker delta_fn pour l'historique
                 delta_fn_t = np.zeros(N)
                 for n in range(N):
                     S_i = dynamics.compute_S_i(t, n, history)
                     delta_fn_t[n] = dynamics.compute_delta_fn(t, state[n]['alpha'], state[n]['w'], S_i)
-                phi_n_t = dynamics.compute_phi_n(t, state, config) if hasattr(dynamics, 'compute_phi_n') else np.zeros(N)
-                gamma_n_t = dynamics.compute_gamma_n(t, state, config) if hasattr(dynamics, 'compute_gamma_n') else np.ones(N)
+                phi_n_t = dynamics.compute_phi_n(t, state, config)
+                gamma_n_t = dynamics.compute_gamma_n(t, state, config)
+                    
             except Exception as e:
-                print(f"⚠️ Erreur calculs dynamiques à t={t}: {e}")
+                print(f"❌ ERREUR CRITIQUE calculs dynamiques à t={t}: {e}")
+                import traceback
+                traceback.print_exc()
+                # DÉBOGAGE : Détailler l'exception pour identifier la source
+                print(f"🔍 DÉTAILS EXCEPTION:")
+                print(f"  - Type: {type(e).__name__}")
+                print(f"  - State: {len(state) if state else 'None'}")
+                print(f"  - In_t: {In_t.shape if hasattr(In_t, 'shape') else type(In_t)}")
+                print(f"  - Config keys: {list(config.keys())}")
+                print(f"  - Enveloppe mode: {config.get('enveloppe', {}).get('env_mode', 'None')}")
+                
+                # En cas d'erreur, utiliser des valeurs de fallback mais alerter clairement
+                print(f"🚨 UTILISATION VALEURS FALLBACK - ceci explique les problèmes de reproductibilité !")
                 An_t = np.ones(N)
                 fn_t = np.ones(N)
                 phi_n_t = np.zeros(N)
@@ -322,14 +339,20 @@ def run_fps_simulation(config, state, loggers):
             f_mean_t = np.mean(fn_t) if isinstance(fn_t, np.ndarray) else fn_t
             
             # Calcul de effort(t) avec deltas si historique disponible
-            if len(An_history) > 0:
+            if len(An_history) > 0 and len(fn_history) > 0:
                 delta_An = An_t - An_history[-1]
                 delta_fn = fn_t - fn_history[-1]
-                delta_gamma_n = gamma_n_t - (gamma_n_t if len(history) == 0 else history[-1].get('gamma_n', gamma_n_t))
+                # Calcul correct de delta_gamma_n depuis l'historique
+                if len(history) > 0 and 'gamma_n' in history[-1]:
+                    gamma_n_prev = history[-1]['gamma_n']
+                    delta_gamma_n = gamma_n_t - gamma_n_prev if hasattr(gamma_n_prev, '__len__') and len(gamma_n_prev) == len(gamma_n_t) else np.zeros_like(gamma_n_t)
+                else:
+                    delta_gamma_n = np.zeros_like(gamma_n_t)  # Première itération = pas de variation
+                
                 effort_t = metrics.compute_effort(delta_An, delta_fn, delta_gamma_n, 
                                                   np.max(An_t), np.max(fn_t), np.max(gamma_n_t)) if hasattr(metrics, 'compute_effort') else 0.0
             else:
-                effort_t = 0.0
+                effort_t = 0.0  # Pas d'historique = pas d'effort calculable
             
             effort_status = metrics.compute_effort_status(effort_t, effort_history, config) if hasattr(metrics, 'compute_effort_status') else "stable"
             

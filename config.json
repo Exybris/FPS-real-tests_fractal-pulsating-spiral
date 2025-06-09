@@ -83,10 +83,10 @@
   ],
   "dynamic_parameters": {
     "dynamic_phi": true,
-    "dynamic_beta": false,
+    "dynamic_beta": true,
     "dynamic_alpha": false,
-    "dynamic_gamma": false,
-    "dynamic_G": false
+    "dynamic_gamma": true,
+    "dynamic_G": true
   },
   "spiral": {
     "phi": 1.618,
@@ -96,31 +96,31 @@
   },
   "regulation": {
     "feedback_mode": "archetype",
-    "G_arch": "tanh",
+    "G_arch": "adaptive",
     "lambda": 1.0,
     "alpha": 1.0,
     "beta": 2.0,
-    "dynamic_G": false
+    "dynamic_G": true
   },
   "latence": {
-    "gamma_mode": "static",
+    "gamma_mode": "dynamic",
     "gamma_static_value": 1.0,
-    "gamma_dynamic": { "k": 2.0, "t0": 50 },
-    "gamma_n_mode": "static",
-    "gamma_n_dynamic": { "k_n": 2.0, "t0_n": 50 }
+    "gamma_dynamic": { "k": 2.0, "t0": 25 },
+    "gamma_n_mode": "dynamic",
+    "gamma_n_dynamic": { "k_n": 2.0, "t0_n": 25 }
   },
   "enveloppe": {
     "env_type": "gaussienne",
-    "env_mode": "static",
+    "env_mode": "dynamic",
     "mu_n": 0.0,
     "sigma_n_static": 0.1,
-    "sigma_n_dynamic": { "amp": 0.05, "freq": 1, "offset": 0.1 }
+    "sigma_n_dynamic": { "amp": 0.05, "freq": 1, "offset": 0.1, "T": 50 }
   },
   "temporal_regulation": {
-    "use_temporal": false,
-    "eta_mode": "constant",
+    "use_temporal": true,
+    "eta_mode": "adaptive",
     "eta_value": 1.0,
-    "theta_mode": "constant", 
+    "theta_mode": "resonant", 
     "theta_value": 1.0
   },
   "exploration": {

@@ -115,7 +115,9 @@ def compute_An(t: float, state: List[Dict], In_t: np.ndarray, config: Dict) -> n
     """
     Calcule l'amplitude adaptative pour chaque strate.
     
-    Aₙ(t) = A₀ · σ(Iₙ(t))
+    PHASE 2: Version dynamique avec enveloppes adaptatives
+    Aₙ(t) = A₀ · σ(Iₙ(t)) · envₙ(x,t)  [si mode dynamique]
+    Aₙ(t) = A₀ · σ(Iₙ(t))              [si mode statique]
     
     Args:
         t: temps actuel
@@ -136,13 +138,53 @@ def compute_An(t: float, state: List[Dict], In_t: np.ndarray, config: Dict) -> n
         print(f"⚠️ Taille In_t ({len(In_t)}) != N ({N}), ajustement automatique")
         In_t = np.resize(In_t, N)
     
+    # PHASE 2: Vérifier le mode enveloppe dynamique
+    enveloppe_config = config.get('enveloppe', {})
+    env_mode = enveloppe_config.get('env_mode', 'static')
+    T = config.get('system', {}).get('T', 100)
+    
     for n in range(N):
         A0 = state[n]['A0']
         k = state[n]['k']
         x0 = state[n]['x0']
         
-        # Amplitude adaptative via sigmoïde
-        An_t[n] = A0 * compute_sigma(In_t[n], k, x0)
+        # Amplitude de base via sigmoïde
+        base_amplitude = A0 * compute_sigma(In_t[n], k, x0)
+        
+        if env_mode == "dynamic":
+            # PHASE 2: Application enveloppe dynamique
+            try:
+                import regulation
+                # Paramètres d'enveloppe dynamique
+                sigma_n_t = regulation.compute_sigma_n(
+                    t, env_mode, T,
+                    enveloppe_config.get('sigma_n_static', 0.1),
+                    enveloppe_config.get('sigma_n_dynamic')
+                )
+                mu_n_t = regulation.compute_mu_n(
+                    t, env_mode,
+                    enveloppe_config.get('mu_n', 0.0),
+                    enveloppe_config.get('mu_n_dynamic')
+                )
+                
+                # Calculer l'enveloppe (centrée sur l'erreur actuelle)
+                error_n = In_t[n] - mu_n_t  # Distance au centre de l'enveloppe
+                env_type = enveloppe_config.get('env_type', 'gaussienne')
+                
+                if env_type == 'gaussienne':
+                    env_factor = np.exp(-0.5 * (error_n / sigma_n_t) ** 2)
+                else:  # sigmoide
+                    env_factor = 1.0 / (1.0 + np.exp(-2.0 * error_n / sigma_n_t))
+                
+                # Amplitude finale avec modulation d'enveloppe
+                An_t[n] = base_amplitude * (0.5 + 0.5 * env_factor)  # Facteur entre 0.5 et 1.0
+                
+            except Exception as e:
+                print(f"⚠️ Erreur enveloppe dynamique strate {n} à t={t}: {e}")
+                An_t[n] = base_amplitude  # Fallback sur mode statique
+        else:
+            # Mode statique classique
+            An_t[n] = base_amplitude
     
     return An_t
 
@@ -245,7 +287,9 @@ def compute_fn(t: float, state: List[Dict], An_t: np.ndarray, config: Dict) -> n
     """
     Calcule la fréquence modulée pour chaque strate.
     
-    fₙ(t) = f₀ₙ + Δfₙ(t)
+    PHASE 2: Version dynamique avec plasticité βₙ(t) adaptative
+    fₙ(t) = f₀ₙ + Δfₙ(t) · βₙ(t)  [si mode dynamique]
+    fₙ(t) = f₀ₙ + Δfₙ(t)          [si mode statique]
     
     Args:
         t: temps actuel
@@ -260,19 +304,48 @@ def compute_fn(t: float, state: List[Dict], An_t: np.ndarray, config: Dict) -> n
     fn_t = np.zeros(N)
     history = config.get('history', [])
     
+    # PHASE 2: Vérifier le mode plasticité dynamique
+    dynamic_params = config.get('dynamic_parameters', {})
+    dynamic_beta = dynamic_params.get('dynamic_beta', False)
+    T = config.get('system', {}).get('T', 100)
+    
     for n in range(N):
         f0n = state[n]['f0']
         alpha_n = state[n]['alpha']
+        beta_n = state[n]['beta']
         w_ni = state[n]['w']
         
         # Calcul du signal des autres strates
         S_i = compute_S_i(t, n, history)
         
-        # Modulation de fréquence
+        # Modulation de fréquence de base
         delta_fn = compute_delta_fn(t, alpha_n, w_ni, S_i)
         
-        # Fréquence finale
-        fn_t[n] = f0n + delta_fn
+        if dynamic_beta:
+            # PHASE 2: Plasticité βₙ(t) adaptative
+            try:
+                # Facteur de plasticité basé sur l'amplitude et le temps
+                A_factor = An_t[n] / state[n]['A0'] if state[n]['A0'] > 0 else 1.0
+                t_factor = 1.0 + 0.5 * np.sin(2 * np.pi * t / T)  # Oscillation temporelle
+                
+                # Moduler βₙ selon le contexte
+                effort_factor = 1.0
+                if len(history) > 0:
+                    recent_effort = history[-1].get('effort(t)', 0.0)
+                    # Plus d'effort → moins de plasticité (stabilisation)
+                    effort_factor = 1.0 / (1.0 + 0.1 * recent_effort)
+                
+                beta_n_t = beta_n * A_factor * t_factor * effort_factor
+                
+                # Fréquence finale avec plasticité dynamique
+                fn_t[n] = f0n + delta_fn * beta_n_t
+                
+            except Exception as e:
+                print(f"⚠️ Erreur plasticité dynamique strate {n} à t={t}: {e}")
+                fn_t[n] = f0n + delta_fn * beta_n  # Fallback sur mode statique
+        else:
+            # Mode statique classique
+            fn_t[n] = f0n + delta_fn * beta_n
     
     return fn_t
 

@@ -219,8 +219,14 @@ def execute_simulations(config_path: str, config: Dict, dirs: Dict) -> Dict[str,
                 if N <= 0:
                     raise ValueError(f"N doit être > 0, reçu: {N}")
             
-            # Utiliser simulate.py directement
-            result = FPS_MODULES['simulate'].run_simulation(config_path, mode)
+            # CORRECTION: Utiliser la même logique que les batch runs pour garantir cohérence
+            # Créer un fichier config temporaire avec deep_convert pour cohérence
+            temp_config_path = os.path.join(dirs['configs'], f'config_{mode.lower()}_main.json')
+            with open(temp_config_path, 'w') as f:
+                json.dump(deep_convert(config), f, indent=2)
+            
+            # Utiliser simulate.py avec le config temporaire 
+            result = FPS_MODULES['simulate'].run_simulation(temp_config_path, mode)
             
             # Copier le fichier log dans le dossier du pipeline
             if 'logs' in result and isinstance(result['logs'], str):
