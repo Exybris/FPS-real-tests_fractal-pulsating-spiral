@@ -1,0 +1,16 @@
+event_type,t_start,t_end,metric,value,severity
+anomaly,87,89,S(t),4.415647,low
+anomaly,92,94,S(t),4.823477,medium
+anomaly,187,189,S(t),4.415647,low
+anomaly,192,194,S(t),4.823477,medium
+anomaly,287,289,S(t),4.415647,low
+anomaly,292,294,S(t),4.823477,medium
+anomaly,387,389,S(t),4.415647,low
+anomaly,392,394,S(t),4.823477,medium
+anomaly,487,489,S(t),4.415647,low
+anomaly,492,494,S(t),4.823477,medium
+phase_cycle,40,63,S(t),23,medium
+phase_cycle,140,163,S(t),23,medium
+phase_cycle,240,263,S(t),23,medium
+phase_cycle,340,363,S(t),23,medium
+phase_cycle,440,463,S(t),23,medium
