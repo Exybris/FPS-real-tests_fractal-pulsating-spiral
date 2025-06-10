@@ -73,6 +73,19 @@ Le système FPS a atteint sa **maturité empirique** avec :
    print(f"🌱 Initialisation seed: {SEED}")
    np.random.seed(SEED)
    ```
+## 📝 Écarts documentés avec la feuille de route
+
+### Formules exploratoires (Phase 1)
+- **compute_S_i** : Utilise une matrice gaussienne au lieu de la formule théorique
+- **compute_En/On** : Formules simplifiées temporaires (En = φ * On(t-1))
+- **Justification** : Permettre l'expérimentation empirique avant finalisation
+
+### Améliorations apportées
+- **Effort normalisé** : Dimensions cohérentes via normalisation
+- **compute_E** : Énergie L2 plus robuste que max simple
+- **compute_L** : Détection de lag optimal enrichie
+
+Ces écarts sont **intentionnels et documentés** dans le code source.
 
 ---
 
