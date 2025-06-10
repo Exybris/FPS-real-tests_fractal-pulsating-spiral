@@ -75,7 +75,7 @@ Le système FPS a atteint sa **maturité empirique** avec :
    ```
 ## 📝 Écarts documentés avec la feuille de route
 
-### Formules exploratoires (Phase 1)
+### Formules exploratoires (Phase 2)
 - **compute_S_i** : Utilise une matrice gaussienne au lieu de la formule théorique
 - **compute_En/On** : Formules simplifiées temporaires (En = φ * On(t-1))
 - **Justification** : Permettre l'expérimentation empirique avant finalisation
