@@ -24,7 +24,7 @@ Le système FPS a atteint sa **maturité empirique** avec :
 
 ---
 
-## 📈 **Histoire de l'évolution : Phase 1 → Phase 2**
+## **Histoire de l'évolution : Phase 1 → Phase 2**
 
 ### Problèmes résolus de la Phase 1
 
@@ -73,7 +73,7 @@ Le système FPS a atteint sa **maturité empirique** avec :
    print(f"🌱 Initialisation seed: {SEED}")
    np.random.seed(SEED)
    ```
-## 📝 Écarts documentés avec la feuille de route
+## Écarts documentés avec la feuille de route
 
 ### Formules exploratoires (Phase 2)
 - **compute_S_i** : Utilise une matrice gaussienne au lieu de la formule théorique
@@ -89,7 +89,7 @@ Ces écarts sont **intentionnels et documentés** dans le code source.
 
 ---
 
-## 🚀 Démarrage rapide
+## Démarrage rapide
 
 ### Installation
 
@@ -127,7 +127,7 @@ python main.py complete --config config.json --verbose
 
 ---
 
-## 📊 **Architecture Phase 2 : Infrastructure complète**
+## **Architecture Phase 2 : Infrastructure complète**
 
 ### Structure du pipeline
 
@@ -177,7 +177,7 @@ fps_pipeline_output/run_YYYYMMDD_HHMMSS/
 
 ---
 
-## 🔬 **Configuration Phase 2 (état par défaut)**
+## **Configuration Phase 2 (état par défaut)**
 
 ### Architecture dynamique activée
 
@@ -239,7 +239,7 @@ G(x,t) = G(x) · η(t) · cos(θ(t)·x)
 
 ---
 
-## 📈 **Résultats empiriques et validation**
+## **Résultats empiriques et validation**
 
 ### Métriques principales Phase 2
 
@@ -277,7 +277,7 @@ ANALYSE PAR CRITÈRE:
 
 ---
 
-## 🧮 **Analyse des découvertes Phase 2**
+## **Analyse des découvertes Phase 2**
 
 ### Fractales spontanées (découverte majeure)
 
@@ -325,7 +325,7 @@ Efficacité : Plus élégant sans perte fonctionnelle
 
 ---
 
-## 🔧 **Auto-raffinement et plasticité**
+## **Auto-raffinement et plasticité**
 
 ### Système auto-adaptatif opérationnel
 
@@ -366,7 +366,7 @@ all_events.extend(new_events)
 
 ---
 
-## 🎯 **Tests et validation empirique**
+## **Tests et validation empirique**
 
 ### Lancer la validation complète
 
@@ -410,7 +410,7 @@ Surcoût     : +20-50% vs Phase 1 (acceptable)
 
 ---
 
-## 📊 **Lecture des résultats Phase 2**
+## **Lecture des résultats Phase 2**
 
 ### Indicateurs de réussite
 
@@ -439,7 +439,7 @@ Surcoût     : +20-50% vs Phase 1 (acceptable)
 
 ---
 
-## 🔬 **Recherche et extensions**
+## **Recherche et extensions**
 
 ### Directions explorées
 
@@ -493,7 +493,7 @@ git commit -m "feat: détecteur bifurcations (+15% événements détectés)"
 
 ---
 
-## 📋 **Troubleshooting Phase 2**
+## **Troubleshooting Phase 2**
 
 ### Erreurs communes résolues
 
@@ -527,7 +527,7 @@ python main.py complete --config config.json | grep cpu_step
 
 ---
 
-## 🎉 **Conclusion : Phase 2 opérationnelle**
+## **Conclusion : Phase 2 opérationnelle**
 
 La FPS Phase 2 représente l'aboutissement d'un processus de recherche empirique rigoureux. Le système a évolué d'une **architecture statique limitée** vers une **infrastructure dynamique complète** générant spontanément des patterns mathématiques complexes.
 
