@@ -427,7 +427,7 @@ Surcoût     : +20-50% vs Phase 1 (acceptable)
 - `variance_d²S` > 0.05 (transitions abruptes)
 - Logs contenant "NaN" ou "Inf" (divergence numérique)
 
-### Grille d'évaluation empirique
+### Grille d'évaluation empirique (légende)
 
 | Score | Symbole | Interprétation | Critères Phase 2 |
 |-------|---------|----------------|------------------|
