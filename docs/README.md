@@ -521,8 +521,6 @@ python main.py complete --config config.json | grep cpu_step
 ### Support et ressources
 
 - **Documentation complète** : `rapport_analyse_empirique_fps_phase2_coherent.md` (47 pages)
-- **Validation empirique** : `validation_environnement_propre_fps.md`
-- **Historique technique** : `validation_finale_corrections_fps.md`
 - **Repository** : [Tests Phase 2 FPS](https://github.com/Exybris/FPS-real-tests_fractal-pulsating-spiral)
 
 ---
