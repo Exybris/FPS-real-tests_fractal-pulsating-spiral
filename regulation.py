@@ -36,7 +36,7 @@ def compute_G(x: Union[float, np.ndarray], archetype: str = "tanh",
     
     Args:
         x: valeur(s) d'entrée (typiquement Eₙ - Oₙ)
-        archetype: type de fonction parmi ["tanh", "sinc", "resonance", "adaptive"]
+        archetype: type de fonction parmi ["tanh", "sinc", "resonance", "spiral_log", "adaptive"]
         params: paramètres spécifiques à chaque archétype
     
     Returns:
@@ -46,7 +46,8 @@ def compute_G(x: Union[float, np.ndarray], archetype: str = "tanh",
         - "tanh": tanh(λx) - Saturation douce, transition continue
         - "sinc": sin(x)/x - Oscillations amorties, passage par zéro
         - "resonance": sin(βx)·exp(-αx²) - Résonance localisée
-        - "adaptive": Forme à définir selon contexte (placeholder phase 2)
+        - "spiral_log": sign(x)·log(1+α|x|)·sin(βx) - Spirale logarithmique (FPS Paper)
+        - "adaptive": Forme à définir selon contexte
     """
     if params is None:
         params = {}
@@ -69,17 +70,32 @@ def compute_G(x: Union[float, np.ndarray], archetype: str = "tanh",
         beta = params.get("beta", 2.0)    # Fréquence d'oscillation
         return np.sin(beta * x) * np.exp(-alpha * x**2)
     
+    elif archetype == "spiral_log":
+        # Spirale logarithmique selon FPS Paper
+        # G(x) = sign(x) · log(1 + α·|x|) · sin(β·x)
+        alpha = params.get("alpha", 1.0)
+        beta = params.get("beta", 2.0)
+        
+        # Calcul par composants pour gérer les arrays
+        sign_x = np.sign(x)
+        abs_x = np.abs(x)
+        
+        log_component = np.log(1 + alpha * abs_x)
+        sin_component = np.sin(beta * x)
+        
+        return sign_x * log_component * sin_component
+    
     elif archetype == "adaptive":
-        # Forme adaptative - À définir selon le contexte en phase 2
-        # Pour l'instant, on utilise une combinaison tanh/sinc
-        # NOTE: Cette forme est exploratoire et sera raffinée selon les runs
+        # Combinaison adaptative de tanh et spiral_log
         lambda_val = params.get("lambda", 1.0)
         alpha = params.get("alpha", 0.5)
         
-        # Combinaison pondérée pour transition douce
+        # Calcul des deux composantes
         tanh_part = np.tanh(lambda_val * x)
-        sinc_part = compute_G(x, "sinc")
-        return alpha * tanh_part + (1 - alpha) * sinc_part
+        spiral_part = compute_G(x, "spiral_log", params)
+        
+        # Mélange pondéré
+        return alpha * tanh_part + (1 - alpha) * spiral_part
     
     else:
         # Archétype non reconnu - fallback sur tanh
@@ -116,7 +132,10 @@ def compute_sigma_n(t: float, mode: str = "static", T: Optional[float] = None,
         offset = sigma_n_dynamic.get("offset", 0.1)
         
         # σₙ(t) = offset + amp·sin(2π·freq·t/T)
-        return offset + amp * np.sin(2 * np.pi * freq * t / T)
+        # GARANTIR que σn > 0 avec un minimum absolu
+        sigma_min = 0.01  # Écart-type minimum pour éviter division par 0
+        raw_sigma = offset + amp * np.sin(2 * np.pi * freq * t / T)
+        return max(raw_sigma, sigma_min)
     
     else:
         # Fallback sur statique
@@ -144,13 +163,16 @@ def compute_mu_n(t: float, mode: str = "static", mu_n_static: float = 0.0,
     
     elif mode == "dynamic" and mu_n_dynamic is not None:
         # Mode dynamique - À définir en phase 2
-        # Exemple exploratoire : dérive lente
-        drift_rate = mu_n_dynamic.get("drift_rate", 0.01)
-        max_drift = mu_n_dynamic.get("max_drift", 1.0)
+        # DÉSACTIVÉ : drift_rate causait des dérives non désirées
+        # drift_rate = mu_n_dynamic.get("drift_rate", 0.01)
+        # max_drift = mu_n_dynamic.get("max_drift", 1.0)
+        # 
+        # # Dérive bornée
+        # drift = drift_rate * t
+        # return np.clip(drift, -max_drift, max_drift)
         
-        # Dérive bornée
-        drift = drift_rate * t
-        return np.clip(drift, -max_drift, max_drift)
+        # Pour l'instant, retourner la valeur statique même en mode dynamique
+        return mu_n_static
     
     else:
         return mu_n_static
@@ -455,7 +477,7 @@ if __name__ == "__main__":
     print("Test 1 - Archétypes G(x):")
     x_test = np.linspace(-3, 3, 7)
     
-    for arch in ["tanh", "sinc", "resonance", "adaptive"]:
+    for arch in ["tanh", "sinc", "resonance", "spiral_log", "adaptive"]:
         g_vals = compute_G(x_test, arch)
         print(f"  {arch}: G(0) = {compute_G(0, arch):.4f}")
     

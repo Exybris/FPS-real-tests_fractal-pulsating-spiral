@@ -484,7 +484,7 @@ def generate_visualizations(results: Dict, config: Dict, dirs: Dict) -> Dict[str
         
         # 4. Grille empirique
         print("  → Grille empirique...")
-        scores = calculate_empirical_scores(fps_result.get('metrics', {}))
+        scores = calculate_empirical_scores(fps_result.get('metrics', {}), config)
         fig4 = FPS_MODULES['visualize'].create_empirical_grid(scores)
         path4 = os.path.join(dirs['figures'], 'empirical_grid.png')
         fig4.savefig(path4, dpi=150, bbox_inches='tight')
@@ -584,12 +584,16 @@ def create_minimal_report(results: Dict, dirs: Dict) -> str:
 
 # ============== FONCTIONS HELPER ==============
 
-def calculate_empirical_scores(metrics: Dict) -> Dict[str, int]:
+def calculate_empirical_scores(metrics: Dict, config: Dict = None) -> Dict[str, int]:
     """
     Calcule les scores 1-5 pour la grille empirique.
     
     Cette fonction utilise les métriques calculées par les autres modules
     pour évaluer chaque critère selon l'échelle FPS.
+    
+    Args:
+        metrics: métriques calculées
+        config: configuration (pour déterminer le type de perturbation)
     """
     scores = {}
     
@@ -618,27 +622,76 @@ def calculate_empirical_scores(metrics: Dict) -> Dict[str, int]:
     else:
         scores['Régulation'] = 2
     
-    # Fluidité (basée sur final_variance_d2S)
-    var_d2s = metrics.get('final_variance_d2S', float('inf'))
-    if var_d2s < 0.001:
-        scores['Fluidité'] = 5
-    elif var_d2s < 0.01:
-        scores['Fluidité'] = 4
-    elif var_d2s < 0.1:
-        scores['Fluidité'] = 3
-    else:
-        scores['Fluidité'] = 2
+    # Fluidité (basée sur la nouvelle métrique de fluidité)
+    fluidity = metrics.get('final_fluidity', None)
+    if fluidity is None:
+        # Fallback : calculer depuis variance_d2S si fluidity n'est pas disponible
+        var_d2s = metrics.get('final_variance_d2S', 175.0)
+        x = var_d2s / 175.0  # Reference variance
+        fluidity = 1 / (1 + np.exp(5.0 * (x - 1)))
     
-    # Résilience (basée sur resilience_t_retour)
-    t_retour = metrics.get('resilience_t_retour', float('inf'))
-    if t_retour < 1.0:
-        scores['Résilience'] = 5
-    elif t_retour < 2.0:
-        scores['Résilience'] = 4
-    elif t_retour < 5.0:
-        scores['Résilience'] = 3
+    if fluidity >= 0.9:
+        scores['Fluidité'] = 5  # Très fluide
+    elif fluidity >= 0.7:
+        scores['Fluidité'] = 4  # Fluide
+    elif fluidity >= 0.5:
+        scores['Fluidité'] = 3  # Moyennement fluide
+    elif fluidity >= 0.3:
+        scores['Fluidité'] = 2  # Peu fluide
     else:
-        scores['Résilience'] = 2
+        scores['Fluidité'] = 1  # Très saccadé
+    
+    # Résilience - Utilise maintenant la métrique adaptative unifiée
+    adaptive_resilience_score = metrics.get('adaptive_resilience_score', None)
+    
+    if adaptive_resilience_score is not None:
+        # Utiliser directement le score calculé par compute_adaptive_resilience
+        scores['Résilience'] = adaptive_resilience_score
+    else:
+        # Fallback : ancienne logique si adaptive_resilience n'est pas disponible
+        has_continuous_perturbation = False
+        
+        # Nouvelle structure avec input.perturbations
+        input_cfg = config.get('system', {}).get('input', {})
+        perturbations = input_cfg.get('perturbations', [])
+        
+        for pert in perturbations:
+            if pert.get('type') in ['sinus', 'bruit', 'rampe']:
+                has_continuous_perturbation = True
+                break
+        
+        # Si pas trouvé dans la nouvelle structure, vérifier l'ancienne (pour compatibilité)
+        if not has_continuous_perturbation and config:
+            old_pert = config.get('system', {}).get('perturbation', {})
+            if old_pert.get('type') in ['sinus', 'bruit', 'rampe']:
+                has_continuous_perturbation = True
+        
+        if has_continuous_perturbation:
+            # Perturbation continue : utiliser continuous_resilience (moyenne de préférence)
+            cont_resilience = metrics.get('continuous_resilience_mean', metrics.get('continuous_resilience', 0))
+            if cont_resilience >= 0.90:
+                scores['Résilience'] = 5  # Excellence (≥90%)
+            elif cont_resilience >= 0.75:
+                scores['Résilience'] = 4  # Très bon (≥75%)
+            elif cont_resilience >= 0.60:
+                scores['Résilience'] = 3  # Bon (≥60%)
+            elif cont_resilience >= 0.40:
+                scores['Résilience'] = 2  # Acceptable (≥40%)
+            else:
+                scores['Résilience'] = 1  # Faible (<40%)
+        else:
+            # Perturbation ponctuelle (choc) ou pas de perturbation : utiliser t_retour
+            t_retour = metrics.get('resilience_t_retour', float('inf'))
+            if t_retour < 1.0:
+                scores['Résilience'] = 5  # Récupération très rapide
+            elif t_retour < 2.0:
+                scores['Résilience'] = 4  # Récupération rapide
+            elif t_retour < 5.0:
+                scores['Résilience'] = 3  # Récupération modérée
+            elif t_retour < 10.0:
+                scores['Résilience'] = 2  # Récupération lente
+            else:
+                scores['Résilience'] = 1  # Très lente ou pas de récupération
     
     # Innovation (basée sur final_entropy_S)
     entropy = metrics.get('final_entropy_S', 0)
@@ -686,8 +739,8 @@ def get_criteria_terms_mapping() -> Dict[str, List[str]]:
     return {
         'Stabilité': ['S(t)', 'C(t)', 'φₙ(t)', 'L(t)', 'max_median_ratio'],
         'Régulation': ['Fₙ(t)', 'G(x)', 'γ(t)', 'Aₙ(t)', 'mean_abs_error'],
-        'Fluidité': ['γₙ(t)', 'σ(x)', 'envₙ(x,t)', 'μₙ(t)', 'variance_d2S'],
-        'Résilience': ['Aₙ(t)', 'G(x,t)', 'effort(t)', 't_retour'],
+        'Fluidité': ['γₙ(t)', 'σ(x)', 'envₙ(x,t)', 'μₙ(t)', 'fluidity'],
+        'Résilience': ['Aₙ(t)', 'G(x,t)', 'effort(t)', 'adaptive_resilience'],
         'Innovation': ['A_spiral(t)', 'Eₙ(t)', 'r(t)', 'entropy_S'],
         'Coût CPU': ['cpu_step(t)', 'N', 'T'],
         'Effort interne': ['effort(t)', 'd_effort/dt', 'mean_high_effort']

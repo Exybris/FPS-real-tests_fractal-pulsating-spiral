@@ -1,0 +1,16 @@
+event_type,t_start,t_end,metric,value,severity
+anomaly,45,47,A_mean(t),3.883024,low
+anomaly,54,99,mean_high_effort,325.692022,high
+anomaly,55,99,mean_high_effort,114.479004,high
+anomaly,56,99,mean_high_effort,79.562475,high
+anomaly,57,99,mean_high_effort,67.057354,high
+anomaly,58,99,mean_high_effort,54.139598,high
+anomaly,59,99,mean_high_effort,38.715269,high
+anomaly,60,99,mean_high_effort,26.951542,high
+anomaly,61,99,mean_high_effort,20.902141,high
+anomaly,62,99,mean_high_effort,15.700839,high
+anomaly,63,99,mean_high_effort,13.025969,high
+phase_cycle,57,62,S(t),5,low
+phase_cycle,58,63,S(t),5,low
+phase_cycle,59,64,S(t),5,low
+phase_cycle,65,70,S(t),5,low

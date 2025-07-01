@@ -1,0 +1,64 @@
+COMPARAISON FPS vs KURAMOTO vs NEUTRAL
+==================================================
+
+SCORES GLOBAUX:
+  FPS:      0.714
+  Kuramoto: 0.408
+  Neutral:  0.373
+
+EFFICIENCE FPS:
+  vs Kuramoto: +74.9%
+  vs Neutral:  +91.4%
+
+DÉTAILS PAR CRITÈRE:
+
+SYNCHRONIZATION:
+  FPS: 0.919
+  Kuramoto: 0.776
+  Neutral: 0.000
+  Efficience vs Kuramoto: +18.4%
+  Efficience vs Neutral: +918962333308.2%
+
+STABILITY:
+  FPS: 13.306
+  Kuramoto: 0.307
+  Neutral: 0.632
+  Efficience vs Kuramoto: +4221.5%
+  Efficience vs Neutral: +2002.1%
+
+RESILIENCE:
+  FPS: 0.039
+  Kuramoto: 1.000
+  Neutral: 0.100
+  Efficience vs Kuramoto: -96.1%
+  Efficience vs Neutral: -61.4%
+
+CONTINUOUS_RESILIENCE:
+  FPS: 1.000
+  Kuramoto: 0.919
+  Neutral: 0.300
+  Efficience vs Kuramoto: +8.8%
+  Efficience vs Neutral: +233.3%
+
+INNOVATION:
+  FPS: 0.825
+  Kuramoto: 0.142
+  Neutral: 0.500
+  Efficience vs Kuramoto: +479.0%
+  Efficience vs Neutral: +64.9%
+
+FLUIDITY:
+  FPS: 0.990
+  Kuramoto: 0.255
+  Neutral: 0.990
+  Efficience vs Kuramoto: +287.7%
+  Efficience vs Neutral: +0.0%
+
+CPU_EFFICIENCY:
+  FPS: 53265.438
+  Kuramoto: 175890.048
+  Neutral: 1000000.000
+  Efficience vs Kuramoto: -69.7%
+  Efficience vs Neutral: -94.7%
+
+FPS surpasse les deux modèles de contrôle (Kuramoto: +74.9%, Neutral: +91.4%)

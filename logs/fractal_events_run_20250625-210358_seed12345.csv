@@ -1,0 +1,4 @@
+event_type,t_start,t_end,metric,value,severity,scale
+fractal_pattern,200,300,A_mean(t),0.880668,medium,10/100
+fractal_pattern,150,250,effort(t),0.816139,medium,10/100
+fractal_pattern,200,300,mean_abs_error,0.668379,medium,10/100

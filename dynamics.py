@@ -113,11 +113,12 @@ def compute_sigma(x: Union[float, np.ndarray], k: float, x0: float) -> Union[flo
 
 def compute_An(t: float, state: List[Dict], In_t: np.ndarray, config: Dict) -> np.ndarray:
     """
-    Calcule l'amplitude adaptative pour chaque strate.
+    Calcule l'amplitude adaptative pour chaque strate selon FPS Paper.
     
-    PHASE 2: Version dynamique avec enveloppes adaptatives
     Aₙ(t) = A₀ · σ(Iₙ(t)) · envₙ(x,t)  [si mode dynamique]
     Aₙ(t) = A₀ · σ(Iₙ(t))              [si mode statique]
+    
+    où x = Eₙ(t) - Oₙ(t) pour l'enveloppe
     
     Args:
         t: temps actuel
@@ -138,10 +139,23 @@ def compute_An(t: float, state: List[Dict], In_t: np.ndarray, config: Dict) -> n
         print(f"⚠️ Taille In_t ({len(In_t)}) != N ({N}), ajustement automatique")
         In_t = np.resize(In_t, N)
     
-    # PHASE 2: Vérifier le mode enveloppe dynamique
+    # Vérifier le mode enveloppe dynamique
     enveloppe_config = config.get('enveloppe', {})
     env_mode = enveloppe_config.get('env_mode', 'static')
     T = config.get('system', {}).get('T', 100)
+    
+    # Pour le mode dynamique, on a besoin de En et On
+    if env_mode == "dynamic":
+        # Calculer En et On pour l'enveloppe
+        history = config.get('history', [])
+        En_t = compute_En(t, state, history, config)
+        
+        # Pour On, on a besoin des valeurs actuelles (problème de circularité)
+        # Solution : utiliser les valeurs de l'itération précédente
+        if len(history) > 0 and 'O' in history[-1]:
+            On_t_prev = history[-1]['O']
+        else:
+            On_t_prev = np.zeros(N)
     
     for n in range(N):
         A0 = state[n]['A0']
@@ -152,7 +166,7 @@ def compute_An(t: float, state: List[Dict], In_t: np.ndarray, config: Dict) -> n
         base_amplitude = A0 * compute_sigma(In_t[n], k, x0)
         
         if env_mode == "dynamic":
-            # PHASE 2: Application enveloppe dynamique
+            # Application enveloppe dynamique selon FPS Paper
             try:
                 import regulation
                 # Paramètres d'enveloppe dynamique
@@ -167,17 +181,18 @@ def compute_An(t: float, state: List[Dict], In_t: np.ndarray, config: Dict) -> n
                     enveloppe_config.get('mu_n_dynamic')
                 )
                 
-                # Calculer l'enveloppe (centrée sur l'erreur actuelle)
-                error_n = In_t[n] - mu_n_t  # Distance au centre de l'enveloppe
+                # Utiliser l'erreur Eₙ - Oₙ selon FPS Paper
+                error_n = En_t[n] - On_t_prev[n] if n < len(On_t_prev) else 0.0
                 env_type = enveloppe_config.get('env_type', 'gaussienne')
                 
-                if env_type == 'gaussienne':
-                    env_factor = np.exp(-0.5 * (error_n / sigma_n_t) ** 2)
-                else:  # sigmoide
-                    env_factor = 1.0 / (1.0 + np.exp(-2.0 * error_n / sigma_n_t))
+                # Calculer l'enveloppe avec l'erreur
+                env_factor = regulation.compute_env_n(error_n, t, env_mode, 
+                                                     sigma_n_t, mu_n_t, T, env_type)
                 
-                # Amplitude finale avec modulation d'enveloppe
-                An_t[n] = base_amplitude * (0.5 + 0.5 * env_factor)  # Facteur entre 0.5 et 1.0
+                # Amplitude finale avec enveloppe SANS G(error)
+                # An = A0 * σ(In) * env(error)
+                # G(error) sera appliqué dans S(t) en mode extended
+                An_t[n] = base_amplitude * env_factor
                 
             except Exception as e:
                 print(f"⚠️ Erreur enveloppe dynamique strate {n} à t={t}: {e}")
@@ -188,19 +203,21 @@ def compute_An(t: float, state: List[Dict], In_t: np.ndarray, config: Dict) -> n
     
     return An_t
 
+
 # ============== CALCUL DU SIGNAL INTER-STRATES ==============
 
-def compute_S_i(t: float, n: int, history: List[Dict]) -> float:
+def compute_S_i(t: float, n: int, history: List[Dict], state: List[Dict]) -> float:
     """
-    Calcule le signal provenant des autres strates.
+    Calcule le signal provenant des autres strates selon FPS Paper.
     
-    Formule FPS correcte : S_i(t) = Σ(j≠n) Oj(t) * w_ji
+    S_i(t) = Σ(j≠n) Oj(t) * w_ji
     où w_ji sont les poids de connexion de la strate j vers la strate i.
     
     Args:
         t: temps actuel
         n: indice de la strate courante
         history: historique complet du système
+        state: état actuel des strates (pour accéder aux poids)
     
     Returns:
         float: signal pondéré des autres strates
@@ -215,81 +232,53 @@ def compute_S_i(t: float, n: int, history: List[Dict]) -> float:
     if On_prev is None or not isinstance(On_prev, np.ndarray):
         return 0.0
     
-    # Calculer la somme pondérée des signaux des autres strates
-    # Note: dans la config actuelle, w_ni est défini pour chaque strate
-    # mais nous avons besoin de w_ji (connexions entrantes)
-    # Pour l'instant, on utilise une matrice de connexion symétrique
+    # Récupérer les poids de la strate n
+    if n < len(state) and 'w' in state[n]:
+        w_n = state[n]['w']
+    else:
+        return 0.0
     
-    S_i = 0.0
     N = len(On_prev)
+    S_i = 0.0
     
-    # Pour chaque autre strate j
+    # Calculer la somme pondérée selon FPS Paper
     for j in range(N):
-        if j != n:  # Exclure la strate courante
-            # Utiliser le signal observé de la strate j
-            Oj = On_prev[j]
-            
-            # Poids de connexion basé sur la distance, variation exploratoire valide
-            # Formule FPS : connexions plus fortes entre strates proches
-            distance = abs(j - n)
-            # Connexion cyclique (la strate 0 est proche de la strate N-1)
-            distance = min(distance, N - distance)
-            
-            # Poids décroissant avec la distance selon une gaussienne
-            sigma_connexion = N / 4.0  # Portée des connexions
-            w_ji = np.exp(-distance**2 / (2 * sigma_connexion**2))
-            
-            S_i += Oj * w_ji
-    
-    # Normaliser par la somme des poids pour garder l'échelle
-    total_weight = 0.0
-    for j in range(N):
-        if j != n:
-            distance = min(abs(j - n), N - abs(j - n))
-            total_weight += np.exp(-distance**2 / (2 * (N/4.0)**2))
-    
-    if total_weight > 0:
-        S_i = S_i / total_weight
+        if j != n and j < len(w_n):  # Exclure la strate courante
+            # w_n[j] est le poids de j vers n
+            S_i += On_prev[j] * w_n[j]
     
     return S_i
 
 
 # ============== MODULATION DE FRÉQUENCE ==============
 
-def compute_delta_fn(t: float, alpha_n: float, w_ni: List[float], S_i: float) -> float:
+def compute_delta_fn(t: float, alpha_n: float, S_i: float) -> float:
     """
-    Calcule la modulation de fréquence.
+    Calcule la modulation de fréquence selon FPS Paper.
     
-    Δfₙ(t) = αₙ · Σᵢ w_{ni} · Sᵢ(t)
+    Δfₙ(t) = αₙ · S_i(t)
+    
+    où S_i(t) = Σ(j≠n) w_nj · Oj(t) est déjà calculé
     
     Args:
         t: temps actuel
-        alpha_n: souplesse d'adaptation
-        w_ni: poids de connexion
-        S_i: signal des autres strates
+        alpha_n: souplesse d'adaptation de la strate
+        S_i: signal agrégé des autres strates
     
     Returns:
         float: modulation de fréquence
     """
-    # Pour phase 1, on simplifie en utilisant S_i comme signal moyen pondéré
-    # La modulation ne doit pas utiliser sum(w_ni) car cela donne 0
-    # À la place, on utilise la valeur absolue moyenne des poids non-nuls
-    non_zero_weights = [abs(w) for w in w_ni if w != 0]
-    if non_zero_weights:
-        avg_weight = np.mean(non_zero_weights)
-        modulation = alpha_n * avg_weight * S_i
-    else:
-        modulation = 0.0
-    return modulation
+    return alpha_n * S_i
 
 
 def compute_fn(t: float, state: List[Dict], An_t: np.ndarray, config: Dict) -> np.ndarray:
     """
-    Calcule la fréquence modulée pour chaque strate.
+    Calcule la fréquence modulée pour chaque strate selon FPS Paper.
     
-    PHASE 2: Version dynamique avec plasticité βₙ(t) adaptative
     fₙ(t) = f₀ₙ + Δfₙ(t) · βₙ(t)  [si mode dynamique]
     fₙ(t) = f₀ₙ + Δfₙ(t)          [si mode statique]
+    
+    Avec contrainte spiralée : fₙ₊₁(t) ≈ r(t) · fₙ(t)
     
     Args:
         t: temps actuel
@@ -304,40 +293,55 @@ def compute_fn(t: float, state: List[Dict], An_t: np.ndarray, config: Dict) -> n
     fn_t = np.zeros(N)
     history = config.get('history', [])
     
-    # PHASE 2: Vérifier le mode plasticité dynamique
+    # Vérifier le mode plasticité dynamique
     dynamic_params = config.get('dynamic_parameters', {})
     dynamic_beta = dynamic_params.get('dynamic_beta', False)
     T = config.get('system', {}).get('T', 100)
     
+    # Calculer le ratio spiralé r(t) selon FPS_Paper
+    if dynamic_params.get('dynamic_phi', False):
+        spiral_config = config.get('spiral', {})
+        phi = spiral_config.get('phi', 1.618)
+        epsilon = spiral_config.get('epsilon', 0.05)
+        omega = spiral_config.get('omega', 0.1)
+        theta = spiral_config.get('theta', 0.0)
+        r_t = compute_r(t, phi, epsilon, omega, theta)
+    else:
+        r_t = None
+    
+    # Calculer d'abord toutes les modulations de base
+    delta_fn_array = np.zeros(N)
     for n in range(N):
         f0n = state[n]['f0']
         alpha_n = state[n]['alpha']
         beta_n = state[n]['beta']
-        w_ni = state[n]['w']
         
         # Calcul du signal des autres strates
-        S_i = compute_S_i(t, n, history)
+        S_i = compute_S_i(t, n, history, state)
         
         # Modulation de fréquence de base
-        delta_fn = compute_delta_fn(t, alpha_n, w_ni, S_i)
+        delta_fn = compute_delta_fn(t, alpha_n, S_i)
+        delta_fn_array[n] = delta_fn
         
         if dynamic_beta:
-            # PHASE 2: Plasticité βₙ(t) adaptative
+            # Plasticité βₙ(t) adaptative
             try:
                 # Facteur de plasticité basé sur l'amplitude et le temps
                 A_factor = An_t[n] / state[n]['A0'] if state[n]['A0'] > 0 else 1.0
                 t_factor = 1.0 + 0.5 * np.sin(2 * np.pi * t / T)  # Oscillation temporelle
                 
                 # Moduler βₙ selon le contexte
-                effort_factor = 1.0
-                if len(history) > 0:
-                    recent_effort = history[-1].get('effort(t)', 0.0)
-                    # Plus d'effort → moins de plasticité (stabilisation)
-                    effort_factor = 1.0 / (1.0 + 0.1 * recent_effort)
+                # DÉSACTIVÉ : effort_factor causait des chutes à 0 non désirées
+                # effort_factor = 1.0
+                # if len(history) > 0:
+                #     recent_effort = history[-1].get('effort(t)', 0.0)
+                #     # Plus d'effort → moins de plasticité (stabilisation)
+                #     effort_factor = 1.0 / (1.0 + 0.1 * recent_effort)
                 
-                beta_n_t = beta_n * A_factor * t_factor * effort_factor
+                # beta_n_t = beta_n * A_factor * t_factor * effort_factor
+                beta_n_t = beta_n * A_factor * t_factor  # Sans effort_factor
                 
-                # Fréquence finale avec plasticité dynamique
+                # Fréquence de base avec plasticité dynamique
                 fn_t[n] = f0n + delta_fn * beta_n_t
                 
             except Exception as e:
@@ -346,6 +350,20 @@ def compute_fn(t: float, state: List[Dict], An_t: np.ndarray, config: Dict) -> n
         else:
             # Mode statique classique
             fn_t[n] = f0n + delta_fn * beta_n
+    
+    # Appliquer la contrainte spiralée si r(t) est défini
+    if r_t is not None and N > 1:
+        # Ajustement progressif pour respecter fₙ₊₁ ≈ r(t) · fₙ
+        # On utilise une approche de relaxation pour éviter les changements brusques
+        relaxation_factor = 0.1  # Facteur d'ajustement doux
+        
+        for n in range(N - 1):
+            # Ratio actuel entre fréquences adjacentes
+            if fn_t[n] > 0:
+                current_ratio = fn_t[n + 1] / fn_t[n]
+                # Ajustement vers le ratio cible
+                target_fn = r_t * fn_t[n]
+                fn_t[n + 1] = fn_t[n + 1] * (1 - relaxation_factor) + target_fn * relaxation_factor
     
     return fn_t
 
@@ -375,15 +393,46 @@ def compute_phi_n(t: float, state: List[Dict], config: Dict) -> np.ndarray:
     dynamic_params = config.get('dynamic_parameters', {})
     dynamic_phi = dynamic_params.get('dynamic_phi', False)
     
-    for n in range(N):
-        if dynamic_phi:
-            # Mode dynamique : évolution spiralée des phases
-            # φₙ(t) = φₙ(0) + 2π * (n/N) * φ * t/T
-            phi_golden = config.get('spiral', {}).get('phi', 1.618)
-            T = config.get('system', {}).get('T', 100)
-            phi_n_t[n] = state[n].get('phi', 0.0) + 2 * np.pi * (n/N) * phi_golden * (t/T)
-        else:
-            # Mode statique
+    if dynamic_phi:
+        # Mode dynamique selon FPS_Paper Section II : "Modulation spiralée"
+        phi_golden = config.get('spiral', {}).get('phi', 1.618)
+        epsilon = config.get('spiral', {}).get('epsilon', 0.05)
+        omega = config.get('spiral', {}).get('omega', 0.1)
+        theta = config.get('spiral', {}).get('theta', 0.0)
+        
+        # Calcul du ratio spiralé r(t) selon FPS_Paper
+        # r(t) = φ + ε · sin(2π·ω·t + θ)
+        r_t = phi_golden + epsilon * np.sin(2 * np.pi * omega * t + theta)
+        
+        for n in range(N):
+            # Phase de base de la strate
+            phi_base = state[n].get('phi', 0.0)
+            
+            # Évolution spiralée selon FPS_Paper :
+            # Les phases évoluent selon la "règle de dilatation harmonique"
+            # φₙ(t) = φₙ(0) + intégration de la modulation spiralée
+            
+            # Modulation spiralée adaptée par strate
+            # Chaque strate suit sa propre évolution mais liée au ratio global r(t)
+            spiral_phase_increment = r_t * epsilon * np.sin(2 * np.pi * omega * t + n * 2 * np.pi / N)
+            
+            # Interaction inter-strates légère (éviter convergence forcée)
+            inter_strata_influence = 0.0
+            for j in range(N):
+                if j != n:
+                    w_nj = state[n].get('w', [0.0]*N)[j] if len(state[n].get('w', [])) > j else 0.0
+                    # Influence modérée pour permettre émergence sans convergence forcée
+                    phase_diff = state[j].get('phi', 0.0) - phi_base
+                    inter_strata_influence += 0.1 * w_nj * np.sin(phase_diff)
+            
+            # Phase résultante selon modulation spiralée FPS
+            total_phase = phi_base + spiral_phase_increment + inter_strata_influence
+            
+            # Garder phases spiralantes SANS modulo pour permettre vraies excursions
+            phi_n_t[n] = total_phase  # Phases peuvent dépasser 2π pour vraie spiralisation
+    else:
+        # Mode statique
+        for n in range(N):
             phi_n_t[n] = state[n].get('phi', 0.0)
     
     return phi_n_t
@@ -391,29 +440,91 @@ def compute_phi_n(t: float, state: List[Dict], config: Dict) -> np.ndarray:
 
 # ============== LATENCE EXPRESSIVE ==============
 
-def compute_gamma(t: float, mode: str = "static", T: Optional[float] = None) -> float:
+def compute_gamma(t: float, mode: str = "static", T: Optional[float] = None, 
+                  k: Optional[float] = None, t0: Optional[float] = None) -> float:
     """
     Calcule la latence expressive globale.
     
     Args:
         t: temps actuel
-        mode: "static" ou "dynamic"
-        T: durée totale (pour mode dynamic)
+        mode: "static", "dynamic", "sigmoid_up", "sigmoid_down", "sigmoid_adaptive", "sigmoid_oscillating", "sinusoidal"
+        T: durée totale (pour modes non statiques)
+        k: paramètre de pente (optionnel, défaut selon mode) ou fréquence pour sinusoidal
+        t0: temps de transition (optionnel, défaut = T/2) ou phase initiale pour sinusoidal
     
     Returns:
         float: latence entre 0 et 1
     
     Formes:
         - static: γ(t) = 1.0
-        - dynamic: γ(t) = 1/(1 + exp(-2(t - T/2)))
+        - dynamic: γ(t) = 1/(1 + exp(-k(t - t0)))
+        - sigmoid_up: activation progressive
+        - sigmoid_down: désactivation progressive
+        - sigmoid_adaptive: varie entre 0.3 et 1.0
+        - sigmoid_oscillating: sigmoïde + oscillation sinusoïdale mise à l'échelle
+        - sinusoidal: oscillation sinusoïdale pure entre 0.1 et 0.9
     """
     if mode == "static":
         return 1.0
     elif mode == "dynamic" and T is not None:
-        # Sigmoïde centrée à T/2
-        k = 2.0  # Paramètre de pente fixé pour phase 1
-        t0 = T / 2
-        return 1.0 / (1.0 + np.exp(-k * (t - t0)))
+        # Sigmoïde centrée à t0 (par défaut T/2)
+        k_val = k if k is not None else 2.0
+        t0_val = t0 if t0 is not None else T / 2
+        return 1.0 / (1.0 + np.exp(-k_val * (t - t0_val)))
+    elif mode == "sigmoid_up" and T is not None:
+        # Activation progressive
+        k_val = k if k is not None else 4.0 / T
+        t0_val = t0 if t0 is not None else T / 2
+        return 1.0 / (1.0 + np.exp(-k_val * (t - t0_val)))
+    elif mode == "sigmoid_down" and T is not None:
+        # Désactivation progressive
+        k_val = k if k is not None else 4.0 / T
+        t0_val = t0 if t0 is not None else T / 2
+        return 1.0 / (1.0 + np.exp(k_val * (t - t0_val)))
+    elif mode == "sigmoid_adaptive" and T is not None:
+        # Varie entre 0.3 et 1.0
+        k_val = k if k is not None else 4.0 / T
+        t0_val = t0 if t0 is not None else T / 2
+        return 0.3 + 0.7 / (1.0 + np.exp(-k_val * (t - t0_val)))
+    elif mode == "sigmoid_oscillating" and T is not None:
+        # Sigmoïde avec oscillation sinusoïdale
+        k_val = k if k is not None else 4.0 / T
+        t0_val = t0 if t0 is not None else T / 2
+        
+        # Calcul de la sigmoïde de base (entre 0 et 1)
+        base_sigmoid = 1.0 / (1.0 + np.exp(-k_val * (t - t0_val)))
+        
+        # Oscillation avec fréquence adaptée
+        oscillation_freq = 2.0  # Nombre d'oscillations sur la durée T
+        oscillation_phase = 2 * np.pi * oscillation_freq / T * t
+        
+        # Mise à l'échelle pour préserver les oscillations complètes
+        # La sigmoïde varie de 0 à 1, on la transforme pour varier de 0.1 à 0.9
+        # puis on ajoute une oscillation de ±0.1 autour
+        sigmoid_scaled = 0.1 + 0.8 * base_sigmoid
+        oscillation_amplitude = 0.1
+        
+        # Résultat final : sigmoïde mise à l'échelle + oscillation
+        # Cela garantit que γ reste dans [0.0, 1.0] sans saturation
+        gamma = sigmoid_scaled + oscillation_amplitude * np.sin(oscillation_phase)
+        
+        # Assurer que gamma reste dans les bornes [0.1, 1.0] par sécurité
+        # mais sans écrêtage brutal
+        return max(0.1, min(1.0, gamma))
+    elif mode == "sinusoidal" and T is not None:
+        # Oscillation sinusoïdale pure sans transition sigmoïde
+        # k représente le nombre d'oscillations sur la durée T (défaut: 2)
+        # t0 représente la phase initiale en radians (défaut: 0)
+        freq = k if k is not None else 2.0  # Nombre d'oscillations sur T
+        phase_init = t0 if t0 is not None else 0.0  # Phase initiale
+        
+        # Oscillation entre 0.1 et 0.9 pour rester dans une plage utile
+        # γ(t) = 0.5 + 0.4 * sin(2π * freq * t/T + phase_init)
+        oscillation = np.sin(2 * np.pi * freq * t / T + phase_init)
+        gamma = 0.5 + 0.4 * oscillation
+        
+        # Assurer que gamma reste dans [0.1, 0.9]
+        return max(0.1, min(0.9, gamma))
     else:
         return 1.0
 
@@ -435,21 +546,32 @@ def compute_gamma_n(t: float, state: List[Dict], config: Dict) -> np.ndarray:
     
     # Configuration de latence
     latence_config = config.get('latence', {})
-    gamma_n_mode = latence_config.get('gamma_n_mode', 'static')
+    # IMPORTANT: Utiliser gamma_mode (pas gamma_n_mode) pour cohérence
+    gamma_mode = latence_config.get('gamma_mode', 'static')
     T = config.get('system', {}).get('T', 100)
     
-    if gamma_n_mode == "static":
-        # Mode statique : toutes les strates à 1.0
-        gamma_n_t[:] = 1.0
-    elif gamma_n_mode == "dynamic":
-        # Mode dynamique avec paramètres par défaut ou depuis config
-        gamma_n_dynamic = latence_config.get('gamma_n_dynamic', {})
-        k_n = gamma_n_dynamic.get('k_n', 2.0)
-        t0_n = gamma_n_dynamic.get('t0_n', T / 2)
+    # Récupérer les paramètres k et t0 depuis gamma_dynamic
+    gamma_dynamic = latence_config.get('gamma_dynamic', {})
+    k = gamma_dynamic.get('k', None)
+    t0 = gamma_dynamic.get('t0', None)
+    
+    if gamma_mode in ["static", "dynamic", "sigmoid_up", "sigmoid_down", "sigmoid_adaptive", "sigmoid_oscillating", "sinusoidal"]:
+        # Utiliser compute_gamma pour tous les modes avec k et t0
+        gamma_global = compute_gamma(t, gamma_mode, T, k, t0)
         
-        # Sigmoïde pour chaque strate
-        for n in range(N):
-            gamma_n_t[n] = 1.0 / (1.0 + np.exp(-k_n * (t - t0_n)))
+        # Option 1: Toutes les strates utilisent le même gamma
+        gamma_n_t[:] = gamma_global
+        
+        # Option 2: Décalage progressif entre strates (si activé dans config)
+        if latence_config.get('strata_delay', False):
+            for n in range(N):
+                t_shifted = t - n * T / (2 * N)  # Décalage temporel progressif
+                gamma_n_t[n] = compute_gamma(t_shifted, gamma_mode, T, k, t0)
+        else:
+            gamma_n_t[:] = gamma_global
+    else:
+        # Mode non reconnu, utiliser static par défaut
+        gamma_n_t[:] = 1.0
     
     return gamma_n_t
 
@@ -486,39 +608,60 @@ def compute_On(t: float, state: List[Dict], An_t: np.ndarray, fn_t: np.ndarray,
     return On_t
 
 
-def compute_En(t: float, state: List[Dict], history: List[Dict], config: Dict) -> np.ndarray:
+def compute_En(t: float, state: List[Dict], history: List[Dict], config: Dict, 
+               history_align: List[float] = None) -> np.ndarray:
     """
     Calcule la sortie attendue (harmonique cible) pour chaque strate.
     
-    Hypothèse exploratoire phase 1:
-    Eₙ(t) = φ · Oₙ(t-1) où φ est le nombre d'or
+    NOUVEAU S1: Attracteur inertiel avec lambda_E adaptatif
+    Eₙ(t) = (1-λ) * Eₙ(t-dt) + λ * φ * Oₙ(t-τ)
+    
+    où λ peut être modulé par k_spacing selon le nombre d'alignements
     
     Args:
         t: temps actuel
         state: état des strates
         history: historique
         config: configuration
+        history_align: historique des alignements En≈On (nouveau S1)
     
     Returns:
         np.ndarray: sorties attendues
-
-    Cette formule exploratoire est temporaire
     """
     N = len(state)
     En_t = np.zeros(N)
     
-    # Nombre d'or
+    # Paramètres de l'attracteur inertiel
+    lambda_E = config.get('regulation', {}).get('lambda_E', 0.05)
+    k_spacing = config.get('regulation', {}).get('k_spacing', 0.0)
     phi = config.get('spiral', {}).get('phi', 1.618)
+    dt = config.get('system', {}).get('dt', 0.1)
+    
+    # Adapter lambda selon le nombre d'alignements (spacing effect)
+    if history_align is not None and k_spacing > 0:
+        n_alignments = len(history_align)
+        lambda_dyn = lambda_E / (1 + k_spacing * n_alignments)
+    else:
+        lambda_dyn = lambda_E
     
     if len(history) > 0:
-        # Attracteur basé sur le nombre d'or
+        # Récupérer les valeurs précédentes
+        last_En = history[-1].get('E', np.zeros(N))
         last_On = history[-1].get('O', np.zeros(N))
-        if isinstance(last_On, np.ndarray) and len(last_On) == N:
-            En_t = phi * last_On
-        else:
-            # Valeur par défaut si historique incomplet
+        
+        # S'assurer que les arrays ont la bonne taille
+        if not isinstance(last_En, np.ndarray) or len(last_En) != N:
+            last_En = np.zeros(N)
             for n in range(N):
-                En_t[n] = state[n]['A0']
+                last_En[n] = state[n]['A0']
+        
+        if not isinstance(last_On, np.ndarray) or len(last_On) != N:
+            last_On = np.zeros(N)
+        
+        # Attracteur inertiel : Eₙ(t) = (1-λ)*Eₙ(t-dt) + λ*φ*Oₙ(t-τ)
+        # τ = dt pour l'instant (peut être ajusté)
+        for n in range(N):
+            En_t[n] = (1 - lambda_dyn) * last_En[n] + lambda_dyn * phi * last_On[n]
     else:
         # Valeur initiale = amplitude de base
         for n in range(N):
@@ -550,13 +693,16 @@ def compute_r(t: float, phi: float, epsilon: float, omega: float, theta: float) 
 
 def compute_C(t: float, phi_n_array: np.ndarray) -> float:
     """
-    Calcule le coefficient d'accord spiralé.
+    Calcule le coefficient d'accord spiralé selon FPS_Paper.
     
     C(t) = (1/N) · Σ cos(φₙ₊₁ - φₙ)
     
+    Pour phases spiralantes (sans modulo), normalise les différences
+    pour mesurer la cohérence locale plutôt que l'alignement absolu.
+    
     Args:
         t: temps actuel
-        phi_n_array: phases de toutes les strates
+        phi_n_array: phases de toutes les strates (peuvent dépasser 2π)
     
     Returns:
         float: coefficient d'accord entre -1 et 1
@@ -565,17 +711,24 @@ def compute_C(t: float, phi_n_array: np.ndarray) -> float:
     if N <= 1:
         return 1.0
     
-    # Somme des cosinus entre phases adjacentes
+    # Somme des cosinus entre phases adjacentes  
     cos_sum = 0.0
     for n in range(N - 1):
-        cos_sum += np.cos(phi_n_array[n + 1] - phi_n_array[n])
+        # Différence de phase brute (peut être > 2π)
+        phase_diff = phi_n_array[n + 1] - phi_n_array[n]
+        
+        # Pour phases spiralantes : mesurer cohérence locale
+        # en normalisant la différence modulo 2π
+        normalized_diff = ((phase_diff + np.pi) % (2 * np.pi)) - np.pi
+        
+        cos_sum += np.cos(normalized_diff)
     
     return cos_sum / (N - 1)
 
 
 def compute_A(t: float, delta_fn_array: np.ndarray) -> float:
     """
-    Calcule la modulation moyenne.
+    Calcule la modulation moyenne selon FPS Paper.
     
     A(t) = (1/N) · Σ Δfₙ(t)
     
@@ -687,7 +840,7 @@ def compute_Fn(t: float, beta_n: float, On_t: float, En_t: float, gamma_t: float
 def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray, 
               phi_n_array: np.ndarray, config: Dict) -> float:
     """
-    Calcule le signal global du système.
+    Calcule le signal global du système selon FPS Paper.
     
     Args:
         t: temps actuel
@@ -701,7 +854,7 @@ def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray,
     
     Modes:
         - "simple": Σₙ Aₙ(t)·sin(2π·fₙ(t)·t + φₙ(t))
-        - "extended": avec γₙ(t) et G(Eₙ(t) - Oₙ(t))
+        - "extended": S(t) = Σₙ [Aₙ(t)·sin(2π·fₙ(t)·t + φₙ(t))·γₙ(t)]·G(Eₙ(t) - Oₙ(t))
     """
     mode = config.get('system', {}).get('signal_mode', 'simple')
     N = len(An_array)
@@ -714,8 +867,8 @@ def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray,
         return S_t
     
     elif mode == "extended":
-        # Version étendue avec latence et régulation
-        # S(t) = Σₙ Aₙ(t)·sin(2π·fₙ(t)·t + φₙ(t))·γₙ(t)·[1 + G(Eₙ(t) - Oₙ(t))]
+        # Version complète selon FPS Paper Chapitre 4
+        # S(t) = Σₙ [Aₙ(t)·sin(2π·fₙ(t)·t + φₙ(t))·γₙ(t)]·G(Eₙ(t) - Oₙ(t))
         
         state = config.get('state', [])
         history = config.get('history', [])
@@ -732,10 +885,11 @@ def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray,
         
         S_t = 0.0
         for n in range(N):
-            # Contribution de base avec latence
-            contribution = An_array[n] * np.sin(2 * np.pi * fn_array[n] * t + phi_n_array[n]) * gamma_n_t[n]
+            # Contribution de base avec latence selon FPS Paper
+            sin_component = np.sin(2 * np.pi * fn_array[n] * t + phi_n_array[n])
+            base_contribution = An_array[n] * sin_component * gamma_n_t[n]
             
-            # Facteur de régulation [1 + G(En - On)]
+            # Calcul de G(Eₙ - Oₙ) selon FPS Paper
             error = En_t[n] - On_t[n]
             
             # Paramètres pour la fonction G
@@ -747,17 +901,11 @@ def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray,
             }
             
             # Calculer G(error)
-            if hasattr(regulation, 'compute_G'):
-                G_value = regulation.compute_G(error, G_arch, G_params)
-            else:
-                # Fallback sur tanh si regulation n'est pas disponible
-                G_value = np.tanh(G_params['lambda'] * error)
+            import regulation
+            G_value = regulation.compute_G(error, G_arch, G_params)
             
-            # Appliquer le facteur de modulation
-            # Le facteur 0.1 limite l'impact de la régulation pour éviter l'instabilité
-            modulation_factor = 1.0 + 0.1 * G_value
-            
-            S_t += contribution * modulation_factor
+            # Contribution finale selon FPS Paper : chaque terme est multiplié par G
+            S_t += base_contribution * G_value
         
         return S_t
     
@@ -803,50 +951,55 @@ def compute_E(t: float, signal_array: Union[np.ndarray, List[float]]) -> float:
     return energy
 
 
-def compute_L(t: float, signal_array: Union[np.ndarray, List[float]]) -> int:
+def compute_L(t: float, An_history: List[np.ndarray], dt: float = 0.1) -> int:
     """
-    Calcule l'indice de latence maximale ou le lag optimal.
+    Calcule L(t) selon FPS_Paper.md : argmaxₙ |dAₙ(t)/dt|
     
-    Pour phase 1 : retourne l'indice de la strate dominante.
-    Pour phase 2 : pourrait calculer un lag temporel optimal.
+    Retourne l'indice de la strate avec la variation d'amplitude maximale.
+    "Latence maximale de variation d'une strate" - quelle strate change le plus vite.
+    
+    Args:
+        t: temps actuel (pour compatibilité, pas utilisé dans cette version)
+        An_history: historique des amplitudes [An(t-dt), An(t), ...]
+        dt: pas de temps pour calcul dérivée
+    
+    Returns:
+        int: indice de la strate avec |dAₙ/dt| maximal
+    """
+    if len(An_history) < 2:
+        # Pas assez d'historique pour dérivée
+        return 0
+    
+    # Derniers états pour calcul dérivée
+    An_current = np.asarray(An_history[-1])  # An(t)
+    An_previous = np.asarray(An_history[-2])  # An(t-dt)
+    
+    if len(An_current) == 0 or len(An_previous) == 0:
+        return 0
+    
+    # Calcul dérivées : dAₙ/dt ≈ (An(t) - An(t-dt)) / dt
+    derivatives = np.abs((An_current - An_previous) / dt)
+    
+    # Retourner indice de variation maximale
+    return int(np.argmax(derivatives))
+
+
+def compute_L_legacy(t: float, signal_array: Union[np.ndarray, List[float]]) -> int:
+    """
+    Version legacy de compute_L (pour compatibilité si besoin).
     
     Args:
         t: temps actuel
         signal_array: signaux ou amplitudes
     
     Returns:
-        int: indice de la strate avec amplitude max ou lag optimal
+        int: indice de la strate avec amplitude max
     """
     if len(signal_array) == 0:
         return 0
     
-    # Mode 1 : Indice de la strate dominante
-    if isinstance(signal_array, np.ndarray) and signal_array.ndim == 1:
-        # C'est un array d'amplitudes par strate
-        return int(np.argmax(np.abs(signal_array)))
-    
-    # Mode 2 : Si c'est une série temporelle, calculer le lag optimal
-    if len(signal_array) > 20:
-        try:
-            # Convertir en array numpy
-            signal = np.array(signal_array)
-            
-            # Autocorrélation simple
-            signal_norm = signal - np.mean(signal)
-            autocorr = np.correlate(signal_norm, signal_norm, mode='same')
-            mid = len(autocorr) // 2
-            autocorr_positive = autocorr[mid:mid+20]  # Regarder les 20 premiers lags
-            
-            # Chercher le premier pic après lag 0
-            for lag in range(1, len(autocorr_positive)-1):
-                if (autocorr_positive[lag] > autocorr_positive[lag-1] and 
-                    autocorr_positive[lag] > autocorr_positive[lag+1]):
-                    return lag
-        except:
-            pass
-    
-    # Par défaut
-    return int(np.argmax(np.abs(signal_array))) if len(signal_array) > 0 else 0
+    # Indice de la strate dominante
+    return int(np.argmax(np.abs(signal_array)))
 
 
 # ============== FONCTIONS UTILITAIRES ==============

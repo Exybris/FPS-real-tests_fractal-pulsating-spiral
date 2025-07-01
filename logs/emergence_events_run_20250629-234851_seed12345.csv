@@ -1,0 +1,8 @@
+event_type,t_start,t_end,metric,value,severity
+phase_cycle,15,23,S(t),8,low
+phase_cycle,35,43,S(t),8,low
+phase_cycle,65,73,S(t),8,low
+phase_cycle,85,93,S(t),8,low
+phase_cycle,115,123,S(t),8,low
+phase_cycle,135,143,S(t),8,low
+phase_cycle,165,173,S(t),8,low

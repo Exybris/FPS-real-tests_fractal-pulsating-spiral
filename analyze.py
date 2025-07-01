@@ -193,9 +193,9 @@ def analyze_criteria_statistics(batch_data: List[Dict], config: Dict) -> Dict[st
     # Critères et leurs métriques associées
     criteria_metrics = {
         'fluidity': {
-            'metric': 'variance_d2S',
-            'threshold_key': 'variance_d2S',
-            'condition': lambda x, t: x > t,
+            'metric': 'fluidity',  # Utilise maintenant la métrique de fluidité directement
+            'threshold_key': 'fluidity_threshold',  # Nouveau seuil pour fluidity
+            'condition': lambda x, t: x < t,  # Inversé : fluidity faible = problème
             'threshold_percent': 0.7  # 70% du run
         },
         'stability': {

@@ -6,9 +6,11 @@ from datetime import datetime
 # 1. — METRIQUES VALIDES —
 METRIQUES_VALIDES = {
     "t", "S(t)", "A_mean(t)", "f_mean(t)", "effort(t)", "cpu_step(t)",
-    "C(t)", "E(t)", "L(t)", "variance_d2S", "entropy_S", "effort_status",
+    "C(t)", "E(t)", "L(t)", "variance_d2S", "fluidity", "entropy_S", "effort_status",
     "mean_abs_error", "mean_high_effort", "d_effort_dt", "t_retour",
-    "max_median_ratio", "A_spiral(t)"
+    "max_median_ratio", "A_spiral(t)", "continuous_resilience", "adaptive_resilience",
+    "En_mean(t)", "On_mean(t)", "gamma", "gamma_mean(t)", "In_mean(t)",
+    "An_mean(t)", "fn_mean(t)"
 }
 
 CRITERES_VALIDES = {
@@ -21,6 +23,7 @@ CRITERES_VALIDES = {
 # après les 5 premiers runs de calibration (N=5, T=20, In(t)~U[0,1])
 SEUILS_THEORIQUES_INITIAUX = {
     "variance_d2S": 0.01,        # Fluidité : variance de d²S/dt²
+    "fluidity_threshold": 0.3,   # Fluidité : seuil minimum (0=saccadé, 1=parfait)
     "stability_ratio": 10,        # Stabilité : max(S(t))/median(S(t))
     "resilience": 2,             # Résilience : t_retour / médiane
     "entropy_S": 0.5,            # Innovation : entropie spectrale
@@ -73,7 +76,7 @@ def validate_system(system, collector):
     seed = system.get("seed")
     mode = system.get("mode")
     logging = system.get("logging", {})
-    perturb = system.get("perturbation", {})
+    input_cfg = system.get("input", {})
 
     if not is_int(N) or N <= 0:
         collector.add_error("system.N doit être un entier > 0")
@@ -101,22 +104,38 @@ def validate_system(system, collector):
             if not check_metric(m):
                 collector.add_error(f"system.logging.log_metrics contient une métrique invalide : {m}")
 
-    # Perturbation
-    pert_type = perturb.get("type")
-    t0 = perturb.get("t0")
-    amplitude = perturb.get("amplitude")
-    if pert_type not in ["choc", "rampe", "sinus", "bruit", "none"]:
-        collector.add_error("system.perturbation.type doit être 'choc', 'rampe', 'sinus', 'bruit' ou 'none'")
-    if not (is_float(t0) or is_int(t0)) or t0 < 0 or (is_int(T) and t0 >= T):
-        collector.add_error("system.perturbation.t0 doit être >=0 et < T")
-    if amplitude is None:
-        collector.add_error("system.perturbation.amplitude doit être défini")
-    if pert_type == "sinus" and "freq" not in perturb:
-        collector.add_error("system.perturbation.freq requis si type='sinus'")
-    if pert_type == "rampe" and "duration" not in perturb:
-        collector.add_error("system.perturbation.duration requis si type='rampe'")
+    # Input (nouvelle architecture)
+    baseline = input_cfg.get("baseline", {})
+    perturbations = input_cfg.get("perturbations", [])
+    
+    # Validation baseline
+    if baseline:
+        offset_mode = baseline.get("offset_mode", "static")
+        if offset_mode not in ["static", "adaptive"]:
+            collector.add_error("system.input.baseline.offset_mode doit être 'static' ou 'adaptive'")
+        if offset_mode == "static" and baseline.get("offset", 0) <= 0:
+            collector.add_error("system.input.baseline.offset doit être > 0")
+        
+        gain_mode = baseline.get("gain_mode", "static")
+        if gain_mode not in ["static", "adaptive"]:
+            collector.add_error("system.input.baseline.gain_mode doit être 'static' ou 'adaptive'")
+        if gain_mode == "static" and baseline.get("gain", 0) <= 0:
+            collector.add_error("system.input.baseline.gain doit être > 0")
+    
+    # Validation perturbations
+    if perturbations:
+        for i, pert in enumerate(perturbations):
+            pert_type = pert.get("type")
+            if pert_type not in ["choc", "rampe", "sinus", "bruit", "none"]:
+                collector.add_error(f"system.input.perturbations[{i}].type doit être 'choc', 'rampe', 'sinus', 'bruit' ou 'none'")
+            if "t0" in pert and (not (is_float(pert["t0"]) or is_int(pert["t0"])) or pert["t0"] < 0):
+                collector.add_error(f"system.input.perturbations[{i}].t0 doit être >= 0")
+            if "amplitude" not in pert:
+                collector.add_error(f"system.input.perturbations[{i}].amplitude doit être défini")
+            if pert_type == "sinus" and "freq" not in pert:
+                collector.add_error(f"system.input.perturbations[{i}].freq requis si type='sinus'")
 
-def validate_strates(strates, N, collector):
+def validate_strates(strates, N, collector, coupling_type=None):
     if not isinstance(strates, list):
         collector.add_error("strates doit être une liste")
         return
@@ -141,13 +160,16 @@ def validate_strates(strates, N, collector):
         if "x0" not in s:
             collector.add_error(f"strate[{i}].x0 doit être défini")
         w = s.get("w")
+        if coupling_type in {"spiral", "ring"} and w is None:
+            # Les poids seront générés dynamiquement : on ne valide pas ici
+            w = [0.0]*N
         if not isinstance(w, list) or len(w) != N:
             collector.add_error(f"strate[{i}].w doit être une liste de taille N={N}")
         # Optionnel : check diagonale nulle, et sum(w[i]) == 0
         if isinstance(w, list) and len(w) == N:
-            if abs(w[i]) > 1e-8:
+            if coupling_type not in {"spiral", "ring"} and abs(w[i]) > 1e-8:
                 collector.add_error(f"strate[{i}].w[{i}] (diagonale) doit être 0")
-            if abs(sum(w)) > 1e-8:
+            if coupling_type not in {"spiral", "ring"} and abs(sum(w)) > 1e-8:
                 collector.add_warning(f"strate[{i}].w : la somme n'est pas exactement 0 (somme={sum(w):.5g}) — vérifier le couplage")
         # Optionnel : checks booléens
         for boolkey in ("dynamic_phi", "dynamic_alpha", "dynamic_beta"):
@@ -171,8 +193,8 @@ def validate_spiral(spiral, collector):
 def validate_regulation(regulation, collector):
     G_arch = regulation.get("G_arch")
     dynamic_G = regulation.get("dynamic_G")
-    if G_arch not in ["tanh", "sinc", "resonance", "adaptive"]:
-        collector.add_error("regulation.G_arch doit être parmi ['tanh', 'sinc', 'resonance', 'adaptive']")
+    if G_arch not in ["tanh", "sinc", "resonance", "spiral_log", "adaptive"]:
+        collector.add_error("regulation.G_arch doit être parmi ['tanh', 'sinc', 'resonance', 'spiral_log', 'adaptive']")
     if G_arch == "tanh":
         if regulation.get("lambda", 0) <= 0:
             collector.add_error("regulation.lambda doit être > 0 si G_arch == 'tanh'")
@@ -186,21 +208,22 @@ def validate_latence(latence, collector):
     gamma_mode = latence.get("gamma_mode")
     gamma_static_value = latence.get("gamma_static_value")
     gamma_dynamic = latence.get("gamma_dynamic", {})
-    gamma_n_mode = latence.get("gamma_n_mode")
-    gamma_n_dynamic = latence.get("gamma_n_dynamic", {})
+    strata_delay = latence.get("strata_delay", False)
+    
+    # Définir les modes valides au début
+    valid_gamma_modes = ["static", "dynamic", "sigmoid_up", "sigmoid_down", "sigmoid_adaptive", "sigmoid_oscillating", "sinusoidal"]
 
-    if gamma_mode not in ["static", "dynamic"]:
-        collector.add_error("latence.gamma_mode doit être 'static' ou 'dynamic'")
+    if gamma_mode not in valid_gamma_modes:
+        collector.add_error(f"latence.gamma_mode doit être l'un de: {', '.join(valid_gamma_modes)}")
     if gamma_mode == "static" and (gamma_static_value is None or gamma_static_value <= 0):
         collector.add_error("latence.gamma_static_value doit être > 0 si gamma_mode == 'static'")
     if gamma_mode == "dynamic":
         if gamma_dynamic.get("k", 0) <= 0 or gamma_dynamic.get("t0", -1) < 0:
             collector.add_error("latence.gamma_dynamic (k>0, t0>=0) doit être défini si gamma_mode=='dynamic'")
-    if gamma_n_mode not in ["static", "dynamic"]:
-        collector.add_error("latence.gamma_n_mode doit être 'static' ou 'dynamic'")
-    if gamma_n_mode == "dynamic":
-        if gamma_n_dynamic.get("k_n", 0) <= 0 or gamma_n_dynamic.get("t0_n", -1) < 0:
-            collector.add_error("latence.gamma_n_dynamic (k_n>0, t0_n>=0) doit être défini si gamma_n_mode=='dynamic'")
+    
+    # Vérifier strata_delay
+    if not isinstance(strata_delay, bool):
+        collector.add_error("latence.strata_delay doit être un booléen")
 
 def validate_enveloppe(enveloppe, collector):
     env_mode = enveloppe.get("env_mode")
@@ -251,6 +274,11 @@ def validate_to_calibrate(tc, collector):
     
     if tc.get("variance_d2S", 0) <= 0:
         collector.add_error("to_calibrate.variance_d2S doit être > 0")
+    # Validation du nouveau seuil de fluidité
+    fluidity_threshold = tc.get("fluidity_threshold")
+    if fluidity_threshold is not None:
+        if not (is_float(fluidity_threshold) and 0 < fluidity_threshold < 1):
+            collector.add_error("to_calibrate.fluidity_threshold doit être dans ]0,1[")
     if tc.get("stability_ratio", 0) <= 1:
         collector.add_error("to_calibrate.stability_ratio doit être > 1")
     if tc.get("resilience", 0) <= 0:
@@ -313,10 +341,38 @@ def validate_cross_checks(config, collector):
         collector.add_warning("T > 1000 : envisager la compression des logs pour éviter les fichiers massifs.")
     # Vérifier cohérence poids des strates
     strates = config.get("strates", [])
+    coupling_type = str(config.get("coupling", {}).get("type", "")).lower()
     for i, s in enumerate(strates):
         w = s.get("w")
+        if coupling_type in {"spiral", "ring"}:
+            continue  # Les poids seront générés dynamiquement
         if isinstance(w, list) and N is not None and len(w) != N:
             collector.add_error(f"strate[{i}].w doit avoir exactement N={N} éléments")
+
+# -------------------------------------------------------------------------
+#  NEW  — VALIDATION DU BLOC COUPLING
+# -------------------------------------------------------------------------
+
+def validate_coupling(coupling, collector):
+    """Validate optional 'coupling' block (spiral / ring)."""
+    if not coupling:
+        return  # Block is optional
+
+    ctype = str(coupling.get("type", "")).lower()
+    if ctype not in {"spiral", "ring"}:
+        collector.add_error("coupling.type doit être 'spiral' ou 'ring' si présent")
+
+    c_val = coupling.get("c")
+    if c_val is None or (not is_float(c_val) and not is_int(c_val)) or c_val <= 0:
+        collector.add_error("coupling.c doit être un nombre > 0")
+
+    for boolkey in ["closed", "mirror"]:
+        if boolkey in coupling and not is_bool(coupling[boolkey]):
+            collector.add_error(f"coupling.{boolkey} doit être booléen s'il est présent")
+
+    # closed est forcé à True si type == ring (pas une erreur mais on prévient)
+    if ctype == "ring" and coupling.get("closed") is False:
+        collector.add_warning("coupling.closed ignoré (forcé à True pour type='ring')")
 
 # 4. — UTILS —
 def is_bool(val):
@@ -377,10 +433,9 @@ def generate_default_config(N=5, T=100):
                 "output": "csv",
                 "log_metrics": ["t", "S(t)", "C(t)", "E(t)", "L(t)", "effort(t)", "cpu_step(t)"]
             },
-            "perturbation": {
-                "type": "choc",
-                "t0": T//4,
-                "amplitude": 1.0
+            "input": {
+                "baseline": {},
+                "perturbations": []
             }
         },
         "strates": strates,
@@ -404,8 +459,7 @@ def generate_default_config(N=5, T=100):
             "gamma_mode": "static",
             "gamma_static_value": 1.0,
             "gamma_dynamic": {"k": 2.0, "t0": T//2},
-            "gamma_n_mode": "static",
-            "gamma_n_dynamic": {"k_n": 2.0, "t0_n": T//2}
+            "strata_delay": False
         },
         "enveloppe": {
             "env_mode": "static",
@@ -520,8 +574,12 @@ def validate_config(config_path_or_dict):
     else:
         N = None
 
+    coupling_type = str(config.get("coupling", {}).get("type", "")).lower()
+
     if "strates" in config:
-        validate_strates(config["strates"], N, collector)
+        validate_strates(config["strates"], N, collector, coupling_type=coupling_type)
+    if "coupling" in config:
+        validate_coupling(config["coupling"], collector)
     if "spiral" in config:
         validate_spiral(config["spiral"], collector)
     if "regulation" in config:

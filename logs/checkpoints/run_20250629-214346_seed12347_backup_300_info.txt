@@ -1,0 +1,2 @@
+Checkpoint créé : 2025-06-29T21:43:46.691235
+Chemin : logs/checkpoints/run_20250629-214346_seed12347_backup_300.pkl

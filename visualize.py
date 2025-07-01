@@ -213,9 +213,9 @@ def plot_metrics_dashboard(metrics_history: Union[Dict[str, List], List[Dict]]) 
     else:
         history_dict = metrics_history
     
-    # Créer la grille de subplots
-    fig = plt.figure(figsize=(16, 12))
-    gs = GridSpec(3, 3, figure=fig, hspace=0.3, wspace=0.3)
+    # Créer la grille de subplots - Augmenter la taille pour le nouveau bloc
+    fig = plt.figure(figsize=(16, 14))
+    gs = GridSpec(4, 3, figure=fig, hspace=0.3, wspace=0.3)
     
     # 1. Signal global S(t)
     if 'S(t)' in history_dict:
@@ -253,11 +253,23 @@ def plot_metrics_dashboard(metrics_history: Union[Dict[str, List], List[Dict]]) 
     if 'entropy_S' in history_dict:
         ax4.plot(history_dict['entropy_S'], color=FPS_COLORS['accent'], 
                  linewidth=2, label='Entropie')
-    if 'variance_d2S' in history_dict:
+    # Afficher fluidity au lieu de variance_d2S
+    if 'fluidity' in history_dict:
         ax4_twin = ax4.twinx()
-        ax4_twin.plot(history_dict['variance_d2S'], color=FPS_COLORS['secondary'], 
-                      linewidth=2, alpha=0.7, label='Var(d²S/dt²)')
-        ax4_twin.set_ylabel('Variance', color=FPS_COLORS['secondary'])
+        ax4_twin.plot(history_dict['fluidity'], color=FPS_COLORS['secondary'], 
+                      linewidth=2, alpha=0.7, label='Fluidité')
+        ax4_twin.set_ylabel('Fluidité', color=FPS_COLORS['secondary'])
+        ax4_twin.set_ylim(0, 1.1)  # Fluidité entre 0 et 1
+    elif 'variance_d2S' in history_dict:
+        # Fallback : calculer fluidity depuis variance_d2S
+        variance_data = np.array(history_dict['variance_d2S'])
+        x = variance_data / 175.0  # Reference variance
+        fluidity_data = 1 / (1 + np.exp(5.0 * (x - 1)))
+        ax4_twin = ax4.twinx()
+        ax4_twin.plot(fluidity_data, color=FPS_COLORS['secondary'], 
+                      linewidth=2, alpha=0.7, label='Fluidité (calculée)')
+        ax4_twin.set_ylabel('Fluidité', color=FPS_COLORS['secondary'])
+        ax4_twin.set_ylim(0, 1.1)
     ax4.set_title('Innovation & Fluidité', fontweight='bold')
     ax4.set_ylabel('Entropie', color=FPS_COLORS['accent'])
     ax4.grid(True, alpha=0.3)
@@ -295,27 +307,86 @@ def plot_metrics_dashboard(metrics_history: Union[Dict[str, List], List[Dict]]) 
                 autopct='%1.1f%%', startangle=90)
         ax7.set_title('Répartition des états d\'effort', fontweight='bold')
     
-    # 8. Résumé statistique
-    ax8 = fig.add_subplot(gs[2, 2])
-    ax8.axis('off')
+    # 8. NOUVEAU BLOC : Alignement En/On et gamma
+    ax8 = fig.add_subplot(gs[3, :])  # Prend toute la largeur de la dernière ligne
+    
+    # Tracer En_mean et On_mean
+    if 'En_mean(t)' in history_dict and 'On_mean(t)' in history_dict:
+        t_array = np.arange(len(history_dict['En_mean(t)']))
+        ax8.plot(t_array, history_dict['En_mean(t)'], 'g--', linewidth=2, 
+                 label='Eₙ (attendu)', alpha=0.8)
+        ax8.plot(t_array, history_dict['On_mean(t)'], 'b-', linewidth=2, 
+                 label='Oₙ (observé)', alpha=0.8)
+        
+        # Ajouter In_mean si disponible
+        if 'In_mean(t)' in history_dict:
+            ax8.plot(t_array, history_dict['In_mean(t)'], 'r:', linewidth=2,
+                     label='Iₙ (input)', alpha=0.8)
+        
+        # Ajouter An_mean et fn_mean si disponibles
+        if 'An_mean(t)' in history_dict:
+            ax8.plot(t_array, history_dict['An_mean(t)'], 'm-', linewidth=1.5,
+                     label='Aₙ (amplitude)', alpha=0.7)
+        
+        if 'fn_mean(t)' in history_dict:
+            # Créer un axe secondaire pour fn car échelle différente
+            ax8_twin = ax8.twinx()
+            ax8_twin.plot(t_array, history_dict['fn_mean(t)'], 'c-', linewidth=1.5,
+                         label='fₙ (fréquence)', alpha=0.7)
+            ax8_twin.set_ylabel('Fréquence moyenne', color='c')
+            ax8_twin.tick_params(axis='y', labelcolor='c')
+            ax8_twin.legend(loc='upper right', bbox_to_anchor=(0.98, 0.85))
+        
+        # Gamma comme remplissage translucide en bas
+        if 'gamma_mean(t)' in history_dict:
+            gamma_data = np.array(history_dict['gamma_mean(t)'])
+            # Normaliser gamma pour l'affichage (entre 0 et 0.2 de l'échelle y)
+            y_range = ax8.get_ylim()[1] - ax8.get_ylim()[0]
+            gamma_scaled = gamma_data * 0.2 * y_range + ax8.get_ylim()[0]
+            ax8.fill_between(t_array, ax8.get_ylim()[0], gamma_scaled, 
+                            color='orange', alpha=0.3, label='γ (latence)')
+        
+        ax8.set_title('Dynamique complète : Iₙ → Aₙ → Oₙ/Eₙ avec fₙ et γ', fontweight='bold')
+        ax8.set_xlabel('Temps')
+        ax8.set_ylabel('Amplitude')
+        ax8.legend(loc='upper left')
+        ax8.grid(True, alpha=0.3)
+    
+    # 9. Résumé statistique (déplacé)
+    ax9 = fig.add_subplot(gs[2, 2])
+    ax9.axis('off')
     
     # Calculer les statistiques
     stats_text = "📊 Statistiques globales\n\n"
     
     if 'S(t)' in history_dict:
-        S_data = history_dict['S(t)']
-        stats_text += f"Signal S(t):\n"
-        stats_text += f"  Moyenne: {np.mean(S_data):.3f}\n"
-        stats_text += f"  Écart-type: {np.std(S_data):.3f}\n"
-        stats_text += f"  Min/Max: [{np.min(S_data):.3f}, {np.max(S_data):.3f}]\n\n"
+        S_data = np.array(history_dict['S(t)'])
+        # Filtrer les valeurs aberrantes
+        S_data_clean = S_data[np.isfinite(S_data)]
+        if len(S_data_clean) > 0:
+            stats_text += f"Signal S(t):\n"
+            stats_text += f"  Moyenne: {np.mean(S_data_clean):.3f}\n"
+            stats_text += f"  Écart-type: {np.std(S_data_clean):.3f}\n"
+            stats_text += f"  Min/Max: [{np.min(S_data_clean):.3f}, {np.max(S_data_clean):.3f}]\n\n"
+        else:
+            stats_text += "Signal S(t): Données invalides\n\n"
     
     if 'effort(t)' in history_dict:
-        effort_data = history_dict['effort(t)']
-        stats_text += f"Effort:\n"
-        stats_text += f"  Moyenne: {np.mean(effort_data):.3f}\n"
-        stats_text += f"  Percentile 90: {np.percentile(effort_data, 90):.3f}\n"
+        effort_data = np.array(history_dict['effort(t)'])
+        # Filtrer les valeurs aberrantes et limiter les valeurs extrêmes
+        effort_data_clean = effort_data[np.isfinite(effort_data)]
+        if len(effort_data_clean) > 0:
+            # Limiter les valeurs extrêmes au 99e percentile
+            percentile_99 = np.percentile(effort_data_clean, 99)
+            effort_data_clean = effort_data_clean[effort_data_clean <= percentile_99]
+            
+            stats_text += f"Effort:\n"
+            stats_text += f"  Moyenne: {np.mean(effort_data_clean):.3f}\n"
+            stats_text += f"  Percentile 90: {np.percentile(effort_data_clean, 90):.3f}\n"
+        else:
+            stats_text += "Effort: Données invalides\n"
     
-    ax8.text(0.1, 0.9, stats_text, transform=ax8.transAxes, 
+    ax9.text(0.1, 0.9, stats_text, transform=ax9.transAxes, 
              fontsize=10, verticalalignment='top',
              bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
@@ -337,6 +408,7 @@ def create_empirical_grid(scores_dict: Dict[str, int]) -> plt.Figure:
     Returns:
         Figure matplotlib
     """
+    
     # Définition des icônes et couleurs
     score_config = {
         1: {'icon': '✖', 'color': '#C73E1D', 'label': 'Rupture/Chaotique'},
@@ -527,7 +599,10 @@ def plot_fps_vs_kuramoto(fps_data: Dict[str, np.ndarray],
     ax1.set_title('Signal global S(t)', fontweight='bold')
     ax1.set_xlabel('Temps')
     ax1.set_ylabel('Amplitude')
-    ax1.legend()
+    # Ajouter légende seulement s'il y a des courbes
+    handles1, labels1 = ax1.get_legend_handles_labels()
+    if handles1:
+        ax1.legend()
     ax1.grid(True, alpha=0.3)
     
     # 2. Coefficient d'accord
@@ -547,16 +622,32 @@ def plot_fps_vs_kuramoto(fps_data: Dict[str, np.ndarray],
     ax2.set_xlabel('Temps')
     ax2.set_ylabel('Coefficient')
     ax2.set_ylim(-1.1, 1.1)
-    ax2.legend()
+    # Légende conditionnelle
+    handles2, labels2 = ax2.get_legend_handles_labels()
+    if handles2:
+        ax2.legend()
     ax2.grid(True, alpha=0.3)
     
     # 3. Effort/CPU
     ax3 = axes[1, 0]
     
+    # Compteur de courbes pour légende
+    effort_plotted = False
+    
     if 'effort(t)' in fps_data and len(fps_data.get('effort(t)', [])) > 0:
         t_fps_e = np.arange(len(fps_data['effort(t)']))
         ax3.plot(t_fps_e, fps_data['effort(t)'], 'b-', linewidth=2, 
                  label='Effort FPS', alpha=0.8)
+        effort_plotted = True
+    
+    # Ajout effort Kuramoto s'il existe
+    if 'effort(t)' in kuramoto_data and len(kuramoto_data.get('effort(t)', [])) > 0:
+        t_kura_e = np.arange(len(kuramoto_data['effort(t)']))
+        # Vérifier si les valeurs ne sont pas toutes nulles
+        if np.any(kuramoto_data['effort(t)'] != 0):
+            ax3.plot(t_kura_e, kuramoto_data['effort(t)'], 'r--', linewidth=2, 
+                     label='Effort Kuramoto', alpha=0.8)
+            effort_plotted = True
     
     # CPU sur axe y droit
     if 'cpu_step(t)' in fps_data or 'cpu_step(t)' in kuramoto_data:
@@ -573,11 +664,18 @@ def plot_fps_vs_kuramoto(fps_data: Dict[str, np.ndarray],
                           label='CPU Kuramoto', alpha=0.6)
         
         ax3_twin.set_ylabel('CPU (s)')
+        # Légende pour axe CPU aussi
+        handles_cpu, labels_cpu = ax3_twin.get_legend_handles_labels()
+        if handles_cpu:
+            ax3_twin.legend(loc='upper right')
     
     ax3.set_title('Effort et coût CPU', fontweight='bold')
     ax3.set_xlabel('Temps')
     ax3.set_ylabel('Effort')
-    ax3.legend(loc='upper left')
+    # Légende effort seulement s'il y a des courbes
+    handles3, labels3 = ax3.get_legend_handles_labels()
+    if handles3:
+        ax3.legend(loc='upper left')
     ax3.grid(True, alpha=0.3)
     
     # 4. Métriques comparatives
@@ -599,16 +697,21 @@ def plot_fps_vs_kuramoto(fps_data: Dict[str, np.ndarray],
     else:
         kura_metrics.extend([0, 0])
     
-    # Mean CPU
+    # Mean CPU - convertir en microsecondes pour visibilité
     if 'cpu_step(t)' in fps_data and len(fps_data.get('cpu_step(t)', [])) > 0:
-        fps_metrics.append(np.mean(fps_data['cpu_step(t)']))
+        fps_cpu_mean = np.mean(fps_data['cpu_step(t)']) * 1e6  # Convertir en μs
+        fps_metrics.append(fps_cpu_mean)
     else:
         fps_metrics.append(0)
     
     if 'cpu_step(t)' in kuramoto_data and len(kuramoto_data.get('cpu_step(t)', [])) > 0:
-        kura_metrics.append(np.mean(kuramoto_data['cpu_step(t)']))
+        kura_cpu_mean = np.mean(kuramoto_data['cpu_step(t)']) * 1e6  # Convertir en μs
+        kura_metrics.append(kura_cpu_mean)
     else:
         kura_metrics.append(0)
+    
+    # Mettre à jour le label pour indiquer les microsecondes
+    metrics_names[2] = 'Mean CPU (μs)'
     
     # Final C(t)
     if 'C(t)' in fps_data and len(fps_data['C(t)']) > 0:
@@ -838,7 +941,7 @@ def export_html_report(all_data: Dict[str, Any], output_path: str) -> None:
             
             <div class="footer">
                 <p>Généré le """ + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + """</p>
-                <p>FPS - Fractale Poétique Spiralée | © 2025 Gepetto & Andréa Gadal</p>
+                <p>FPS - Fractal Pulsating Spiral | © 2025 Gepetto & Andréa Gadal</p>
             </div>
         </div>
     </body>
@@ -947,3 +1050,136 @@ if __name__ == "__main__":
     
     # Afficher une figure pour vérification
     plt.show()
+
+
+def plot_adaptive_resilience(metrics_history: Union[Dict[str, List], List[Dict]], 
+                           perturbation_type: str = 'none') -> plt.Figure:
+    """
+    Affiche la métrique de résilience adaptative unifiée.
+    
+    Utilise adaptive_resilience qui sélectionne automatiquement entre:
+    - t_retour pour les perturbations ponctuelles (choc)
+    - continuous_resilience pour les perturbations continues (sinus, bruit, rampe)
+    
+    Args:
+        metrics_history: historique des métriques
+        perturbation_type: type de perturbation (détecté automatiquement si adaptive_resilience présent)
+    
+    Returns:
+        Figure matplotlib
+    """
+    # Convertir en format uniforme si nécessaire
+    if isinstance(metrics_history, list) and len(metrics_history) > 0:
+        keys = metrics_history[0].keys()
+        history_dict = {k: [m.get(k, 0) for m in metrics_history] for k in keys}
+    else:
+        history_dict = metrics_history
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Priorité à adaptive_resilience si disponible
+    if 'adaptive_resilience' in history_dict:
+        data = history_dict['adaptive_resilience']
+        scores = history_dict.get('adaptive_resilience_score', [3] * len(data))
+        metric_name = "Résilience Adaptative"
+        ylabel = "Score unifié [0-1]"
+        description = "Métrique unifiée selon le type de perturbation"
+        color = FPS_COLORS['primary']
+        
+        # Déterminer automatiquement le type depuis les scores
+        if len(scores) > 0 and scores[0] is not None:
+            # Si on a des scores, on peut déduire le type de perturbation utilisé
+            perturbation_type = 'adaptatif'
+    
+    # Fallback sur les métriques individuelles
+    elif perturbation_type == 'choc':
+        # Perturbation ponctuelle : utiliser t_retour
+        if 't_retour' in history_dict:
+            data = history_dict['t_retour']
+            # Normaliser t_retour en score [0-1]
+            data = [1.0 / (1.0 + t) if t != 0 else 1.0 for t in data]
+            metric_name = "Résilience (basée sur t_retour)"
+            ylabel = "Score [0-1]"
+            description = "Temps de récupération normalisé après perturbation ponctuelle"
+            color = FPS_COLORS['warning']
+        else:
+            ax.text(0.5, 0.5, 'Données de résilience non disponibles', 
+                   transform=ax.transAxes, ha='center', va='center')
+            return fig
+    
+    elif perturbation_type in ['sinus', 'bruit', 'rampe']:
+        # Perturbation continue : utiliser continuous_resilience
+        if 'continuous_resilience' in history_dict:
+            data = history_dict['continuous_resilience']
+            metric_name = "Résilience Continue"
+            ylabel = "Score [0-1]"
+            description = "Capacité à maintenir la cohérence sous perturbation continue"
+            color = FPS_COLORS['success']
+        else:
+            ax.text(0.5, 0.5, 'Données continuous_resilience non disponibles', 
+                   transform=ax.transAxes, ha='center', va='center')
+            return fig
+    
+    else:
+        # Pas de perturbation ou type inconnu
+        ax.text(0.5, 0.5, f'Type de perturbation "{perturbation_type}" non géré\n' + 
+                'Utilisez adaptive_resilience pour une sélection automatique',
+                transform=ax.transAxes, ha='center', va='center')
+        return fig
+    
+    # Tracer la métrique
+    time_steps = np.arange(len(data))
+    ax.plot(time_steps, data, color=color, linewidth=2.5, alpha=0.8)
+    
+    # Ajouter une ligne de référence pour continuous_resilience
+    if perturbation_type in ['sinus', 'bruit', 'rampe']:
+        ax.axhline(y=0.5, color='gray', linestyle='--', alpha=0.5, 
+                  label='Seuil acceptable (0.5)')
+        ax.axhline(y=0.8, color='green', linestyle='--', alpha=0.5, 
+                  label='Seuil excellent (0.8)')
+        ax.set_ylim(-0.05, 1.05)
+    
+    # Mise en forme
+    ax.set_title(f'{metric_name} - {description}', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Pas de temps')
+    ax.set_ylabel(ylabel)
+    ax.grid(True, alpha=0.3)
+    
+    # Statistiques dans un encadré
+    mean_val = np.mean(data)
+    std_val = np.std(data)
+    final_val = data[-1] if len(data) > 0 else 0
+    
+    stats_text = f'Moyenne: {mean_val:.3f}\n'
+    stats_text += f'Écart-type: {std_val:.3f}\n'
+    stats_text += f'Valeur finale: {final_val:.3f}'
+    
+    # Ajouter interprétation pour continuous_resilience
+    if perturbation_type in ['sinus', 'bruit', 'rampe']:
+        if final_val >= 0.8:
+            interpretation = "Excellente résilience"
+            interp_color = 'green'
+        elif final_val >= 0.5:
+            interpretation = "Résilience acceptable"
+            interp_color = 'orange'
+        else:
+            interpretation = "Résilience faible"
+            interp_color = 'red'
+        stats_text += f'\n\nInterprétation: {interpretation}'
+    
+    ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
+            verticalalignment='top', horizontalalignment='left',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.7),
+            fontsize=10)
+    
+    # Légende si lignes de référence
+    if perturbation_type in ['sinus', 'bruit', 'rampe']:
+        ax.legend(loc='lower right')
+    
+    # Ajouter note sur le type de perturbation
+    ax.text(0.98, 0.02, f'Perturbation: {perturbation_type}', 
+           transform=ax.transAxes, ha='right', va='bottom',
+           style='italic', alpha=0.7)
+    
+    plt.tight_layout()
+    return fig

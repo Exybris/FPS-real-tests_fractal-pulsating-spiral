@@ -56,38 +56,57 @@ def compute_cpu_step(start_time: float, end_time: float, N: int) -> float:
 # ============== MÉTRIQUES D'EFFORT ==============
 
 def compute_effort(delta_An_array: np.ndarray, delta_fn_array: np.ndarray, 
-                   delta_gamma_n_array: np.ndarray, An_max: float, fn_max: float, 
-                   gamma_max: float) -> float:
+                   delta_gamma_n_array: np.ndarray, An_ref: float, fn_ref: float, 
+                   gamma_ref: float) -> float:
     """
     Calcule l'effort d'adaptation interne du système.
     
-    Version normalisée pour cohérence dimensionnelle :
-    effort = Σₙ [|ΔAₙ|/An_max + |Δfₙ|/fn_max + |Δγₙ|/gamma_max]
+    Version corrigée qui évite l'explosion quand les valeurs de référence → 0 :
+    effort = Σₙ [|ΔAₙ|/(|Aₙ|+ε) + |Δfₙ|/(|fₙ|+ε) + |Δγₙ|/(|γₙ|+ε)]
     
     Args:
         delta_An_array: variations d'amplitude
         delta_fn_array: variations de fréquence
         delta_gamma_n_array: variations de latence
-        An_max: amplitude maximale (pour normalisation)
-        fn_max: fréquence maximale
-        gamma_max: latence maximale
+        An_ref: valeur de référence pour An (mean ou max)
+        fn_ref: valeur de référence pour fn
+        gamma_ref: valeur de référence pour gamma
     
     Returns:
         float: effort total normalisé
     
     Note:
-        L'effort mesure l'intensité des ajustements internes.
-        Un effort élevé indique que le système "travaille" beaucoup.
+        L'effort mesure maintenant le changement RELATIF par rapport
+        aux valeurs actuelles, pas par rapport au maximum global.
     """
     effort = 0.0
     
-    # Protection contre division par zéro
-    if An_max > 0:
-        effort += np.sum(np.abs(delta_An_array)) / An_max
-    if fn_max > 0:
-        effort += np.sum(np.abs(delta_fn_array)) / fn_max
-    if gamma_max > 0:
-        effort += np.sum(np.abs(delta_gamma_n_array)) / gamma_max
+    # Protection contre division par zéro avec floor minimum
+    # Pour éviter overflow quand les valeurs de référence sont très petites
+    # Utilisation d'un epsilon adaptatif basé sur l'échelle des variations
+    epsilon = 0.01
+    
+    # Calcul de l'effort comme changement relatif
+    # Si la référence est trop petite, on utilise epsilon
+    An_denom = max(abs(An_ref), epsilon)
+    fn_denom = max(abs(fn_ref), epsilon) 
+    gamma_denom = max(abs(gamma_ref), epsilon)
+    
+    # Somme des efforts relatifs pour chaque composante
+    effort_An = np.sum(np.abs(delta_An_array)) / An_denom
+    effort_fn = np.sum(np.abs(delta_fn_array)) / fn_denom
+    effort_gamma = np.sum(np.abs(delta_gamma_n_array)) / gamma_denom
+    
+    effort = effort_An + effort_fn + effort_gamma
+    
+    # Vérification finale contre NaN/Inf et saturation
+    if np.isnan(effort) or np.isinf(effort):
+        # Si malgré tout on a un problème, retourner une valeur par défaut
+        effort = 0.0
+    
+    # NOUVEAU : Saturation pour éviter les valeurs extrêmes
+    MAX_EFFORT = 100.0  # Limite raisonnable pour l'effort
+    effort = min(effort, MAX_EFFORT)
     
     return effort
 
@@ -130,11 +149,19 @@ def compute_effort_status(effort_t: float, effort_history: List[float],
             return "transitoire"
         
         # Détection chronique : moyenne récente élevée
-        if mean_recent > mean_long + std_long:
-            # Vérifier la persistance
-            high_count = sum(1 for e in recent_efforts if e > mean_long + std_long)
-            if high_count >= 7:  # 70% du temps récent
+        # Si std_long est très petit (effort constant), utiliser un seuil absolu
+        if std_long < 0.01:
+            # Effort constant - utiliser les seuils de config
+            thresholds = config.get('to_calibrate', {})
+            if mean_recent > thresholds.get('effort_chronique_threshold', 1.5):
                 return "chronique"
+        else:
+            # Effort variable - utiliser la logique adaptative
+            if mean_recent > mean_long + std_long:
+                # Vérifier la persistance
+                high_count = sum(1 for e in recent_efforts if e > mean_long + std_long)
+                if high_count >= 7:  # 70% du temps récent
+                    return "chronique"
     
     # Sinon, utiliser des seuils fixes depuis config
     thresholds = config.get('to_calibrate', {})
@@ -170,11 +197,22 @@ def compute_mean_high_effort(effort_history: List[float], percentile: int = 80) 
         # Pas assez de données - retourner la moyenne simple
         return np.mean(effort_history)
     
-    # Calculer le seuil du percentile
-    threshold = np.percentile(effort_history, percentile)
+    # Filtrer les valeurs aberrantes (NaN, Inf, et valeurs énormes)
+    MAX_REASONABLE_EFFORT = 1e6
+    filtered_efforts = []
+    
+    for effort in effort_history:
+        if np.isfinite(effort) and abs(effort) < MAX_REASONABLE_EFFORT:
+            filtered_efforts.append(effort)
+    
+    if len(filtered_efforts) == 0:
+        return 0.0
+    
+    # Calculer le seuil du percentile sur les valeurs filtrées
+    threshold = np.percentile(filtered_efforts, percentile)
     
     # Moyenner les valeurs au-dessus
-    high_efforts = [e for e in effort_history if e >= threshold]
+    high_efforts = [e for e in filtered_efforts if e >= threshold]
     
     if len(high_efforts) == 0:
         return threshold
@@ -199,7 +237,20 @@ def compute_d_effort_dt(effort_history: List[float], dt: float) -> float:
         return 0.0
     
     # Dérivée simple entre les deux derniers points
-    return (effort_history[-1] - effort_history[-2]) / dt
+    d_effort = effort_history[-1] - effort_history[-2]
+    d_effort_dt = d_effort / dt
+    
+    # Protection contre les valeurs aberrantes
+    # Si la dérivée est énorme, c'est probablement dû à un overflow
+    MAX_DERIVATIVE = 1e6  # Limite raisonnable pour une dérivée
+    
+    if np.isnan(d_effort_dt) or np.isinf(d_effort_dt):
+        return 0.0
+    elif abs(d_effort_dt) > MAX_DERIVATIVE:
+        # Clipper à la valeur max avec le bon signe
+        return MAX_DERIVATIVE if d_effort_dt > 0 else -MAX_DERIVATIVE
+    
+    return d_effort_dt
 
 
 # ============== MÉTRIQUES DE QUALITÉ DYNAMIQUE ==============
@@ -231,6 +282,29 @@ def compute_variance_d2S(S_history: List[float], dt: float) -> float:
     
     # Variance
     return np.var(d2S_dt2)
+
+
+def compute_fluidity(variance_d2S: float, reference_variance: float = 175.0) -> float:
+    """
+    Calcule la fluidité du système basée sur la variance de d²S/dt².
+    
+    Une faible variance indique des transitions douces (haute fluidité).
+    Utilise une sigmoïde inversée pour une sensibilité optimale.
+    
+    Args:
+        variance_d2S: variance de la dérivée seconde du signal
+        reference_variance: variance de référence (défaut: médiane empirique)
+    
+    Returns:
+        float: fluidité entre 0 (saccadé) et 1 (très fluide)
+    """
+    if variance_d2S <= 0:
+        return 1.0  # Variance nulle = parfaitement fluide
+    
+    x = variance_d2S / reference_variance
+    k = 5.0  # Sensibilité de la transition
+    
+    return 1 / (1 + np.exp(k * (x - 1)))
 
 
 def compute_entropy_S(S_t: Union[float, List[float], np.ndarray], 
@@ -374,9 +448,20 @@ def compute_t_retour(S_history: List[float], t_choc: int, dt: float,
     if len(pre_shock_window) == 0:
         return 0.0
     
+    # Valeur de référence avant le choc
     etat_pre_choc = np.mean(np.abs(pre_shock_window))
-    
-    # Chercher quand |S(t)| revient à ±5% de l'état pré-choc
+
+    # Cas dégénéré : fenêtre quasi nulle (p. ex. S passe par 0)
+    if etat_pre_choc < 1e-6:
+        # Repli : prendre plutôt le max absolu de la même fenêtre
+        etat_pre_choc = np.max(np.abs(pre_shock_window))
+
+    # Si c'est toujours ≈0, on considère que le système n'est pas revenu ;
+    # on renverra la durée totale restante (pénalité maximale)
+    if etat_pre_choc < 1e-6:
+        return (len(S_history) - t_choc) * dt
+
+    # Chercher quand |S(t)| revient à ±5 % de l'état pré-choc
     tolerance = (1 - threshold) * etat_pre_choc
     
     for i in range(t_choc + 1, len(S_history)):
@@ -389,6 +474,178 @@ def compute_t_retour(S_history: List[float], t_choc: int, dt: float,
     
     # Pas encore revenu à l'équilibre
     return (len(S_history) - t_choc) * dt
+
+
+def compute_continuous_resilience(C_history: List[float], S_history: List[float], 
+                                 perturbation_active: bool = True) -> float:
+    """
+    Calcule la résilience sous perturbation continue.
+    
+    Pour une perturbation continue (ex: sinusoïdale), mesure la capacité
+    du système à maintenir sa cohérence et stabilité.
+    
+    Args:
+        C_history: historique de la cohérence C(t)
+        S_history: historique du signal S(t)
+        perturbation_active: si une perturbation est active
+    
+    Returns:
+        float: score de résilience continue [0, 1]
+        - 1.0 = excellente résilience (maintien de cohérence)
+        - 0.0 = mauvaise résilience (perte de cohérence)
+    
+    Note:
+        Métrique complémentaire à t_retour pour perturbations non-ponctuelles
+    """
+    if not perturbation_active or len(C_history) < 20:
+        return 1.0  # Pas de perturbation ou pas assez de données
+    
+    # 1. Stabilité de la cohérence sous perturbation
+    # Une bonne résilience = C(t) reste élevé malgré la perturbation
+    C_mean = np.mean(C_history[-100:]) if len(C_history) >= 100 else np.mean(C_history)
+    C_std = np.std(C_history[-100:]) if len(C_history) >= 100 else np.std(C_history)
+    
+    # Score de stabilité : pénaliser la variabilité
+    stability_score = C_mean / (1 + C_std) if C_mean > 0 else 0.0
+    
+    # 2. Capacité d'adaptation : mesurer si S(t) reste expressif
+    if len(S_history) >= 20:
+        S_recent = S_history[-50:] if len(S_history) >= 50 else S_history
+        S_power = np.mean(np.abs(S_recent))
+        
+        # Pénaliser si S(t) s'effondre (perte d'expressivité)
+        expressivity_score = np.tanh(S_power)  # Normaliser entre 0 et 1
+    else:
+        expressivity_score = 0.5
+    
+    # 3. Résilience combinée
+    continuous_resilience = 0.7 * stability_score + 0.3 * expressivity_score
+    
+    return float(np.clip(continuous_resilience, 0.0, 1.0))
+
+
+def compute_adaptive_resilience(config: Dict, metrics: Dict, 
+                               C_history: List[float] = None, 
+                               S_history: List[float] = None,
+                               t_choc: int = None, dt: float = 0.05) -> Dict[str, Any]:
+    """
+    Calcule la résilience adaptative selon le type de perturbation.
+    
+    Cette fonction unifie t_retour et continuous_resilience en sélectionnant
+    automatiquement la métrique appropriée selon le type de perturbation configuré.
+    
+    Args:
+        config: configuration complète
+        metrics: métriques déjà calculées (pour t_retour existant)
+        C_history: historique de cohérence (pour continuous_resilience)
+        S_history: historique du signal
+        t_choc: indice temporel du choc (pour t_retour)
+        dt: pas de temps
+    
+    Returns:
+        Dict contenant:
+        - 'type': 'punctual' ou 'continuous'
+        - 'value': valeur de résilience [0, 1] ou temps
+        - 'score': score normalisé [1-5]
+        - 'metric_used': 't_retour' ou 'continuous_resilience'
+    """
+    # Déterminer le type de perturbation
+    has_continuous_perturbation = False
+    perturbation_type = 'none'
+    
+    # Nouvelle structure avec input.perturbations
+    input_cfg = config.get('system', {}).get('input', {})
+    perturbations = input_cfg.get('perturbations', [])
+    
+    for pert in perturbations:
+        pert_type = pert.get('type', 'none')
+        if pert_type in ['sinus', 'bruit', 'rampe']:
+            has_continuous_perturbation = True
+            perturbation_type = 'continuous'
+            break
+        elif pert_type == 'choc':
+            perturbation_type = 'punctual'
+    
+    # Si pas trouvé dans la nouvelle structure, vérifier l'ancienne (compatibilité)
+    if perturbation_type == 'none' and config:
+        old_pert = config.get('system', {}).get('perturbation', {})
+        old_type = old_pert.get('type', 'none')
+        if old_type in ['sinus', 'bruit', 'rampe']:
+            has_continuous_perturbation = True
+            perturbation_type = 'continuous'
+        elif old_type == 'choc':
+            perturbation_type = 'punctual'
+    
+    result = {
+        'type': perturbation_type,
+        'metric_used': None,
+        'value': None,
+        'score': 3,  # Score par défaut
+        'raw_value': None
+    }
+    
+    if has_continuous_perturbation:
+        # Utiliser continuous_resilience
+        result['metric_used'] = 'continuous_resilience'
+        
+        # Préférer la valeur moyenne si disponible
+        cont_resilience = metrics.get('continuous_resilience_mean', 
+                                     metrics.get('continuous_resilience', None))
+        
+        # Si pas disponible, calculer
+        if cont_resilience is None and C_history is not None and S_history is not None:
+            cont_resilience = compute_continuous_resilience(C_history, S_history, True)
+        
+        if cont_resilience is not None:
+            result['value'] = cont_resilience
+            result['raw_value'] = cont_resilience
+            
+            # Calculer le score 1-5
+            if cont_resilience >= 0.90:
+                result['score'] = 5  # Excellence
+            elif cont_resilience >= 0.75:
+                result['score'] = 4  # Très bon
+            elif cont_resilience >= 0.60:
+                result['score'] = 3  # Bon
+            elif cont_resilience >= 0.40:
+                result['score'] = 2  # Acceptable
+            else:
+                result['score'] = 1  # Faible
+    
+    else:
+        # Utiliser t_retour pour perturbation ponctuelle ou absence
+        result['metric_used'] = 't_retour'
+        
+        # Récupérer t_retour existant
+        t_retour = metrics.get('resilience_t_retour', 
+                               metrics.get('t_retour', None))
+        
+        # Si pas disponible et qu'on a les données nécessaires, calculer
+        if t_retour is None and S_history is not None and t_choc is not None:
+            t_retour = compute_t_retour(S_history, t_choc, dt)
+        
+        if t_retour is not None:
+            result['raw_value'] = t_retour
+            # Normaliser t_retour en score [0, 1] pour cohérence
+            # Plus t_retour est petit, meilleure est la résilience
+            if t_retour == 0:
+                result['value'] = 1.0
+            else:
+                result['value'] = 1.0 / (1.0 + t_retour)
+            
+            # Calculer le score 1-5
+            if t_retour < 1.0:
+                result['score'] = 5  # Récupération très rapide
+            elif t_retour < 2.0:
+                result['score'] = 4  # Récupération rapide
+            elif t_retour < 5.0:
+                result['score'] = 3  # Récupération modérée
+            elif t_retour < 10.0:
+                result['score'] = 2  # Récupération lente
+            else:
+                result['score'] = 1  # Très lente
+    
+    return result
 
 
 # ============== VÉRIFICATION DES SEUILS ==============

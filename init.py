@@ -5,7 +5,7 @@ import pprint
 from datetime import datetime
 import os
 import sys
-from utils import deep_convert
+from utils import deep_convert, generate_spiral_weights
 
 # Import correct de validate_config
 sys.path.append(os.path.dirname(__file__))
@@ -48,25 +48,35 @@ def set_seed(seed):
     random.seed(seed)
     print(f"🌱 Seed initialisée : {seed}")
 
-def verify_weight_matrix(w, strate_id, epsilon=1e-8):
-    """
-    Vérifie la cohérence de la matrice de poids :
-    - Diagonale nulle (pas d'auto-connexion)
-    - Somme des poids proche de zéro (conservation)
-    
-    Retourne (is_valid, errors_list)
+def verify_weight_matrix(w, strate_id, epsilon: float = 1e-8, enforce_zero_sum: bool = True):
+    """Vérifie la cohérence d'une ligne de poids.
+
+    Paramètres
+    ----------
+    w : list[float]
+        Ligne de la matrice de poids.
+    strate_id : int
+        Index de la strate courante.
+    epsilon : float
+        Tolérance numérique.
+    enforce_zero_sum : bool, optional
+        Lorsque *False* on n'impose pas Σw[i] = 0. Utile pour les extrémités
+        d'une spirale ouverte (couplage non conservatif aux bords).
     """
     errors = []
-    
-    # Vérification diagonale nulle
+
+    # Diagonale nulle
     if abs(w[strate_id]) > epsilon:
-        errors.append(f"La diagonale w[{strate_id}][{strate_id}] = {w[strate_id]:.6f} doit être 0")
-    
-    # Vérification somme nulle (conservation du signal)
-    sum_w = sum(w)
-    if abs(sum_w) > epsilon:
-        errors.append(f"La somme des poids w[{strate_id}] = {sum_w:.6f} doit être 0 (conservation)")
-    
+        errors.append(
+            f"La diagonale w[{strate_id}][{strate_id}] = {w[strate_id]:.6f} doit être 0")
+
+    # Conservation du signal si exigée
+    if enforce_zero_sum:
+        sum_w = sum(w)
+        if abs(sum_w) > epsilon:
+            errors.append(
+                f"La somme des poids w[{strate_id}] = {sum_w:.6f} doit être 0 (conservation)")
+
     return len(errors) == 0, errors
 
 def init_strates(config):
@@ -81,10 +91,36 @@ def init_strates(config):
     strates = []
     weight_errors = []
     
+    # ----- NOUVEAU : génération automatique des poids spiralés -----
+    coupling_cfg = config.get("coupling", {})
+    coupling_type = str(coupling_cfg.get("type", "")).lower()
+    spiral_mode = coupling_type in {"spiral", "ring"}
+    mirror_mode = coupling_cfg.get("mirror", False)
+    W_spiral = None
+    if spiral_mode:
+        N_total = len(config["strates"])
+        c_val = coupling_cfg.get("c", 0.25)
+        # Pour 'ring', on force closed=True si non précisé
+        if coupling_type == "ring":
+            closed_val = True
+        else:
+            closed_val = coupling_cfg.get("closed", False)
+
+        W_spiral = generate_spiral_weights(N_total, c=c_val, closed=closed_val, mirror=mirror_mode)
+        print(f"🔄 Génération matrice de poids '{coupling_type}' (c={c_val}, closed={closed_val}, mirror={mirror_mode})")
+    
     for i, s in enumerate(config['strates']):
-        # Vérification des poids
-        w = s.get('w', [])
-        is_valid, w_errors = verify_weight_matrix(w, i)
+        # Sélection des poids : priorité au mode spiral s'il est activé
+        if W_spiral is not None:
+            w = W_spiral[i]
+        else:
+            w = s.get('w', [])
+        
+        # Vérification des poids (tolérance spéciale pour extrémités spirale ouverte)
+        spiral_open = spiral_mode and not closed_val
+        skip_edges = spiral_open and not mirror_mode and (i == 0 or i == N_total - 1)
+        enforce_sum = not skip_edges
+        is_valid, w_errors = verify_weight_matrix(w, i, enforce_zero_sum=enforce_sum)
         if not is_valid:
             weight_errors.extend([f"Strate {i}: {err}" for err in w_errors])
         
@@ -179,20 +215,31 @@ def init_strates(config):
     
     return deep_convert(strates)
 
-def setup_logging(config, log_dir="logs"):
+def setup_logging(config, log_dir="logs", mode_suffix=None):
     """
     Configure le système de logging avec gestion des dossiers.
     Retourne un dictionnaire avec la structure attendue par simulate.py.
+    
+    Args:
+        config: Configuration du système
+        log_dir: Dossier de logs (défaut: "logs")
+        mode_suffix: Suffixe optionnel pour différencier les modes (ex: "FPS", "Kuramoto", "Neutral")
     """
     seed = config['system']['seed']
     os.makedirs(log_dir, exist_ok=True)
     now = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_id = f"run_{now}_seed{seed}"
+    
+    # Ajouter le suffixe si fourni
+    if mode_suffix:
+        run_id = f"run_{now}_{mode_suffix}_seed{seed}"
+    else:
+        run_id = f"run_{now}_seed{seed}"
+    
     log_file = os.path.join(log_dir, f"{run_id}.csv")
     
     # Log de la seed
     with open(os.path.join(log_dir, "seeds.txt"), "a") as f:
-        f.write(f"{now} | SEED = {seed}\n")
+        f.write(f"{now} | {mode_suffix or 'DEFAULT'} | SEED = {seed}\n")
     
     # Préparer le writer CSV
     csv_file = open(log_file, 'w', newline='')

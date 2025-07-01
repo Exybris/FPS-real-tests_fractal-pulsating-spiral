@@ -464,6 +464,185 @@ def load_scenario(filename: str) -> List[Dict]:
     return data.get('perturbations', [])
 
 
+# ============== NOUVELLE ARCHITECTURE In(t) ==============
+
+def compute_In(t: float, input_cfg: Dict, state: Optional[Dict] = None, 
+               history: Optional[List[Dict]] = None, dt: float = 0.05) -> float:
+    """
+    Calcule In(t) selon la nouvelle architecture modulaire.
+    
+    In(t) = Offset(t) + Gain(t) · tanh(In_raw(t) / scale)
+    où In_raw(t) = Σᵢ wᵢ · Pertᵢ(t)
+    
+    Args:
+        t: temps actuel
+        input_cfg: configuration de l'input contextuel
+        state: état du système (pour modes adaptatifs)
+        history: historique pour calculs adaptatifs
+        dt: pas de temps
+    
+    Returns:
+        float: valeur de In(t) garantie > 0
+    
+    Structure de input_cfg:
+        {
+            "baseline": {
+                "offset_mode": "static" | "adaptive",
+                "offset": 0.1,  # pour mode static
+                "offset_adaptive": {...},  # pour mode adaptive
+                "gain_mode": "static" | "adaptive",
+                "gain": 1.0,  # pour mode static
+                "gain_adaptive": {...}  # pour mode adaptive
+            },
+            "scale": 1.0,
+            "perturbations": [
+                {"type": "sinus", "weight": 1.0, ...},
+                {"type": "choc", "weight": 0.5, ...}
+            ]
+        }
+    """
+    # Configuration par défaut
+    baseline = input_cfg.get('baseline', {})
+    scale = input_cfg.get('scale', 1.0)
+    perturbations = input_cfg.get('perturbations', [])
+    
+    # ----- 1. Calcul de l'Offset -----
+    offset_mode = baseline.get('offset_mode', 'static')
+    
+    if offset_mode == 'static':
+        offset = baseline.get('offset', 0.1)
+    else:  # adaptive
+        offset = compute_adaptive_offset(t, baseline.get('offset_adaptive', {}), 
+                                         state, history, dt)
+    
+    # ----- 2. Calcul du Gain -----
+    gain_mode = baseline.get('gain_mode', 'static')
+    
+    if gain_mode == 'static':
+        gain = baseline.get('gain', 1.0)
+    else:  # adaptive
+        gain = compute_adaptive_gain(t, baseline.get('gain_adaptive', {}), 
+                                     state, history, dt)
+    
+    # ----- 3. Superposition des perturbations -----
+    In_raw = 0.0
+    for pert_cfg in perturbations:
+        weight = pert_cfg.get('weight', 1.0)
+        pert_value = generate_perturbation(t, pert_cfg)
+        In_raw += weight * pert_value
+    
+    # ----- 4. Normalisation douce avec tanh -----
+    # tanh borne In_raw dans [-1, 1], donc In_final reste dans [offset-gain, offset+gain]
+    In_normalized = np.tanh(In_raw / scale)
+    In_final = offset + gain * In_normalized
+    
+    # Garantir In > 0
+    epsilon = 0.001  # Valeur minimale absolue
+    In_final = max(In_final, epsilon)
+    
+    return In_final
+
+
+def compute_adaptive_offset(t: float, offset_cfg: Dict, state: Optional[Dict], 
+                            history: Optional[List[Dict]], dt: float) -> float:
+    """
+    Calcule un offset adaptatif pour maintenir σ(In) dans une plage cible.
+    
+    Args:
+        offset_cfg: configuration de l'offset adaptatif
+            - "target_sigma": valeur cible pour σ(In) (défaut: 0.5)
+            - "k_A": gain de l'intégrateur (défaut: 0.01)
+            - "min": offset minimum (défaut: 0.05)
+            - "max": offset maximum (défaut: 0.5)
+            - "window": taille de fenêtre pour moyenner (défaut: 20)
+    """
+    # Paramètres
+    target_sigma = offset_cfg.get('target_sigma', 0.5)
+    k_A = offset_cfg.get('k_A', 0.01)
+    offset_min = offset_cfg.get('min', 0.05)
+    offset_max = offset_cfg.get('max', 0.5)
+    window_size = offset_cfg.get('window', 20)
+    
+    # Récupérer l'offset actuel depuis l'état
+    if state is None:
+        state = {}
+    
+    if 'adaptive_offset' not in state:
+        state['adaptive_offset'] = offset_cfg.get('initial', 0.1)
+    
+    current_offset = state['adaptive_offset']
+    
+    # Calculer σ moyen sur la fenêtre récente
+    if history and len(history) >= window_size:
+        # Récupérer les In récents et calculer leurs sigmoïdes
+        recent_In = [h.get('In', 0.1) for h in history[-window_size:]]
+        # Sigmoïde simple : 1/(1+exp(-x))
+        recent_sigma = [1.0 / (1.0 + np.exp(-In)) for In in recent_In]
+        mean_sigma = np.mean(recent_sigma)
+        
+        # Intégrateur : dA/dt = k_A * (target - actual)
+        error = target_sigma - mean_sigma
+        dA = k_A * error * dt
+        
+        # Mise à jour avec saturation
+        new_offset = np.clip(current_offset + dA, offset_min, offset_max)
+        state['adaptive_offset'] = new_offset
+        
+        return new_offset
+    else:
+        # Pas assez d'historique, retourner l'offset actuel
+        return current_offset
+
+
+def compute_adaptive_gain(t: float, gain_cfg: Dict, state: Optional[Dict], 
+                          history: Optional[List[Dict]], dt: float) -> float:
+    """
+    Calcule un gain adaptatif pour éviter la saturation.
+    
+    Args:
+        gain_cfg: configuration du gain adaptatif
+            - "target_range": amplitude cible pour In_raw (défaut: 2.0)
+            - "k_G": gain du contrôleur (défaut: 0.05)
+            - "min": gain minimum (défaut: 0.1)
+            - "max": gain maximum (défaut: 2.0)
+            - "window": taille de fenêtre (défaut: 10)
+    """
+    # Paramètres
+    target_range = gain_cfg.get('target_range', 2.0)
+    k_G = gain_cfg.get('k_G', 0.05)
+    gain_min = gain_cfg.get('min', 0.1)
+    gain_max = gain_cfg.get('max', 2.0)
+    window_size = gain_cfg.get('window', 10)
+    
+    # Récupérer le gain actuel depuis l'état
+    if state is None:
+        state = {}
+    
+    if 'adaptive_gain' not in state:
+        state['adaptive_gain'] = gain_cfg.get('initial', 1.0)
+    
+    current_gain = state['adaptive_gain']
+    
+    # Calculer |In_raw| moyen récent
+    if history and len(history) >= window_size:
+        # Note: il faudrait stocker In_raw dans l'historique
+        # Pour l'instant, on estime depuis les variations de In
+        recent_In = [h.get('In', 0.1) for h in history[-window_size:]]
+        In_variations = np.std(recent_In)
+        
+        # Si les variations sont trop grandes, réduire le gain
+        error = In_variations - target_range
+        dG = -k_G * error * dt
+        
+        # Mise à jour avec saturation
+        new_gain = np.clip(current_gain + dG, gain_min, gain_max)
+        state['adaptive_gain'] = new_gain
+        
+        return new_gain
+    else:
+        return current_gain
+
+
 # ============== TESTS ET VALIDATION ==============
 
 if __name__ == "__main__":

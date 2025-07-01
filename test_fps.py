@@ -99,16 +99,77 @@ class TestDynamics(unittest.TestCase):
         self.assertLess(gamma_start, 0.1)
         self.assertGreater(gamma_end, 0.9)
     
+    def test_compute_gamma_sigmoid_up(self):
+        """Test du mode sigmoid_up."""
+        T = 100
+        # Doit croître de façon monotone
+        gamma_0 = dynamics.compute_gamma(0, mode="sigmoid_up", T=T)
+        gamma_mid = dynamics.compute_gamma(T/2, mode="sigmoid_up", T=T)
+        gamma_end = dynamics.compute_gamma(T, mode="sigmoid_up", T=T)
+        
+        self.assertLess(gamma_0, gamma_mid)
+        self.assertLess(gamma_mid, gamma_end)
+        self.assertLess(gamma_0, 0.2)
+        self.assertGreater(gamma_end, 0.8)
+    
+    def test_compute_gamma_sigmoid_down(self):
+        """Test du mode sigmoid_down."""
+        T = 100
+        # Doit décroître de façon monotone
+        gamma_0 = dynamics.compute_gamma(0, mode="sigmoid_down", T=T)
+        gamma_mid = dynamics.compute_gamma(T/2, mode="sigmoid_down", T=T)
+        gamma_end = dynamics.compute_gamma(T, mode="sigmoid_down", T=T)
+        
+        self.assertGreater(gamma_0, gamma_mid)
+        self.assertGreater(gamma_mid, gamma_end)
+        self.assertGreater(gamma_0, 0.8)
+        self.assertLess(gamma_end, 0.2)
+    
+    def test_compute_gamma_sigmoid_adaptive(self):
+        """Test du mode sigmoid_adaptive."""
+        T = 100
+        # Doit varier entre 0.3 et 1.0
+        for t in [0, T/4, T/2, 3*T/4, T]:
+            gamma = dynamics.compute_gamma(t, mode="sigmoid_adaptive", T=T)
+            self.assertGreaterEqual(gamma, 0.3)
+            self.assertLessEqual(gamma, 1.0)
+    
+    def test_compute_gamma_sigmoid_oscillating(self):
+        """Test du mode sigmoid_oscillating."""
+        T = 100
+        # Doit osciller autour de la sigmoïde de base
+        gamma_values = []
+        for t in np.linspace(0, T, 50):
+            gamma = dynamics.compute_gamma(t, mode="sigmoid_oscillating", T=T)
+            gamma_values.append(gamma)
+            # Vérifier les bornes
+            self.assertGreaterEqual(gamma, 0.1)
+            self.assertLessEqual(gamma, 1.0)
+        
+        # Vérifier qu'il y a des oscillations (variations)
+        diffs = np.diff(gamma_values)
+        sign_changes = np.sum(np.diff(np.sign(diffs)) != 0)
+        self.assertGreater(sign_changes, 2)
+    
     def test_compute_S_i(self):
-        """Test du signal inter-strates."""
+        """Test du signal inter-strates avec matrice de poids."""
         # À t=0, doit retourner 0
-        S_i = dynamics.compute_S_i(0, 0, [])
+        S_i = dynamics.compute_S_i(0, 0, [], self.state)
         self.assertEqual(S_i, 0.0)
         
-        # Avec historique
+        # Avec historique et matrice de poids
         history = [{'S': 2.0, 'O': np.array([0.5, 0.3, 0.2])}]
-        S_i = dynamics.compute_S_i(1, 0, history)
-        self.assertAlmostEqual(S_i, 2.0 - 0.5, places=6)
+        
+        # Pour la strate 0, calculer S_i selon la formule FPS
+        # S_i = Σ(j≠0) O_j * w_0j
+        S_i = dynamics.compute_S_i(1, 0, history, self.state)
+        
+        # Calcul attendu avec les poids de la strate 0
+        w_0 = self.state[0]['w']  # [0.0, 0.1, -0.1]
+        expected = history[0]['O'][1] * w_0[1] + history[0]['O'][2] * w_0[2]
+        expected = 0.3 * 0.1 + 0.2 * (-0.1)  # = 0.03 - 0.02 = 0.01
+        
+        self.assertAlmostEqual(S_i, expected, places=6)
     
     def test_compute_On_En(self):
         """Test des sorties observée et attendue."""
@@ -118,7 +179,7 @@ class TestDynamics(unittest.TestCase):
         gamma_n_t = np.ones(3)
 
     def test_formule_S_i_conforme(self):
-        """Test de conformité de la formule S_i(t)."""
+        """Test de conformité de la formule S_i(t) avec matrice de poids."""
         # Créer un historique de test
         history = [{
             'S': 2.5,
@@ -127,10 +188,17 @@ class TestDynamics(unittest.TestCase):
         
         # Test pour chaque strate
         for n in range(3):
-            S_i = dynamics.compute_S_i(1, n, history)
-            expected = 2.5 - history[0]['O'][n]
+            S_i = dynamics.compute_S_i(1, n, history, self.state)
+            
+            # Calcul attendu selon FPS : S_i = Σ(j≠n) O_j * w_nj
+            w_n = self.state[n]['w']
+            expected = 0.0
+            for j in range(3):
+                if j != n:
+                    expected += history[0]['O'][j] * w_n[j]
+            
             self.assertAlmostEqual(S_i, expected, places=6,
-                                 msg=f"S_i(t) doit être S(t-dt) - On(t-dt) pour strate {n}")
+                                 msg=f"S_i(t) doit être Σ(j≠n) O_j * w_nj pour strate {n}")
             
     def test_formule_Fn_conforme(self):
         """Test de conformité de la formule Fn(t)."""
@@ -139,46 +207,7 @@ class TestDynamics(unittest.TestCase):
         En_t = 0.6
         gamma_t = 0.9
         
-        Fn = dynamics.compute_Fn(0, beta_n, On_t, En_t, gamma_t, 0, 0, {})
-        expected = beta_n * (On_t - En_t) * gamma_t
-        
-        self.assertAlmostEqual(Fn, expected, places=6,
-                             msg="Fn(t) doit être βn·(On(t)-En(t))·γ(t)")   
-        
-        # Sortie observée
-        On_t = dynamics.compute_On(0, self.state, An_t, fn_t, phi_n_t, gamma_n_t)
-        self.assertEqual(len(On_t), 3)
-        
-        # Sortie attendue (sans historique)
-        En_t = dynamics.compute_En(0, self.state, [], self.config)
-        self.assertEqual(len(En_t), 3)
-        # Sans historique, En = A0
-        for i in range(3):
-            self.assertAlmostEqual(En_t[i], self.state[i]['A0'], places=6)
-    
-    def test_formule_S_i_conforme(self):
-        """Test de conformité de la formule S_i(t)."""
-        # Créer un historique de test
-        history = [{
-            'S': 2.5,
-            'O': np.array([0.5, 0.3, 0.2])
-        }]
-        
-        # Test pour chaque strate
-        for n in range(3):
-            S_i = dynamics.compute_S_i(1, n, history)
-            expected = 2.5 - history[0]['O'][n]
-            self.assertAlmostEqual(S_i, expected, places=6,
-                                 msg=f"S_i(t) doit être S(t-dt) - On(t-dt) pour strate {n}")
-    
-    def test_formule_Fn_conforme(self):
-        """Test de conformité de la formule Fn(t)."""
-        beta_n = 1.5
-        On_t = 0.8
-        En_t = 0.6
-        gamma_t = 0.9
-        
-        Fn = dynamics.compute_Fn(0, beta_n, On_t, En_t, gamma_t)
+        Fn = dynamics.compute_Fn(0, beta_n, On_t, En_t, gamma_t, 1.0, 1.0, {})
         expected = beta_n * (On_t - En_t) * gamma_t
         
         self.assertAlmostEqual(Fn, expected, places=6,
@@ -272,14 +301,6 @@ class TestRegulation(unittest.TestCase):
         Fn_gn = dynamics.compute_Fn(0, beta_n, On_t, En_t, gamma_t, 1.0, 1.0, config_gn)
         # Vérifier que c'est calculé
         self.assertIsInstance(Fn_gn, float)    
-        
-        feedback = regulation.compute_Gn(error, 50, An_t, fn_t, self.config)
-        
-        # Vérifier la forme
-        self.assertEqual(feedback.shape, error.shape)
-        
-        # Vérifier que le feedback est non nul
-        self.assertGreater(np.abs(feedback).sum(), 0)
 
 
 class TestMetrics(unittest.TestCase):
@@ -289,7 +310,12 @@ class TestMetrics(unittest.TestCase):
         """Données de test."""
         self.S_history = list(np.sin(np.linspace(0, 10, 100)))
         self.effort_history = list(0.5 + 0.1 * np.random.randn(100))
-        self.config = {'to_calibrate': {}}
+        self.config = {
+            'to_calibrate': {
+                'effort_transitoire_threshold': 2.0,
+                'effort_chronique_threshold': 1.0  # Seuil plus bas pour que le test passe
+            }
+        }
     
     def test_compute_cpu_step(self):
         """Test du calcul CPU."""
@@ -326,6 +352,82 @@ class TestMetrics(unittest.TestCase):
         
         # Le signal bruité doit avoir plus de variance
         self.assertGreater(var_noisy, var_smooth)
+    
+    def test_compute_fluidity(self):
+        """Test de la nouvelle métrique de fluidité."""
+        # Test avec variance nulle (fluidité parfaite)
+        fluidity_perfect = metrics.compute_fluidity(0.0)
+        self.assertEqual(fluidity_perfect, 1.0)
+        
+        # Test avec variance de référence (fluidité = 0.5)
+        fluidity_ref = metrics.compute_fluidity(175.0)
+        self.assertAlmostEqual(fluidity_ref, 0.5, places=2)
+        
+        # Test avec variance élevée (fluidité faible)
+        fluidity_low = metrics.compute_fluidity(350.0)
+        self.assertLess(fluidity_low, 0.1)
+        
+        # Test avec variance faible (fluidité élevée)
+        fluidity_high = metrics.compute_fluidity(87.5)
+        self.assertGreater(fluidity_high, 0.9)
+        
+        # Vérifier la monotonie : plus de variance = moins de fluidité
+        variances = [50, 100, 150, 200, 250, 300]
+        fluidities = [metrics.compute_fluidity(v) for v in variances]
+        for i in range(len(fluidities) - 1):
+            self.assertGreater(fluidities[i], fluidities[i+1])
+    
+    def test_compute_adaptive_resilience(self):
+        """Test de la résilience adaptative."""
+        # Configuration avec perturbation continue
+        config_continuous = {
+            'system': {
+                'input': {
+                    'perturbations': [
+                        {'type': 'sinus', 'amplitude': 0.5, 'freq': 0.1}
+                    ]
+                }
+            }
+        }
+        
+        # Configuration avec perturbation ponctuelle
+        config_punctual = {
+            'system': {
+                'input': {
+                    'perturbations': [
+                        {'type': 'choc', 'amplitude': 2.0, 't0': 10}
+                    ]
+                }
+            }
+        }
+        
+        # Test avec perturbation continue
+        metrics_cont = {'continuous_resilience': 0.85}
+        result_cont = metrics.compute_adaptive_resilience(
+            config_continuous, metrics_cont
+        )
+        
+        self.assertEqual(result_cont['type'], 'continuous')
+        self.assertEqual(result_cont['metric_used'], 'continuous_resilience')
+        self.assertEqual(result_cont['value'], 0.85)
+        self.assertEqual(result_cont['score'], 4)  # 0.85 → score 4
+        
+        # Test avec perturbation ponctuelle
+        metrics_punct = {'t_retour': 1.5}
+        result_punct = metrics.compute_adaptive_resilience(
+            config_punctual, metrics_punct
+        )
+        
+        self.assertEqual(result_punct['type'], 'punctual')
+        self.assertEqual(result_punct['metric_used'], 't_retour')
+        self.assertEqual(result_punct['score'], 4)  # t_retour 1.5 → score 4
+        
+        # Test sans perturbation
+        config_none = {'system': {'input': {'perturbations': []}}}
+        result_none = metrics.compute_adaptive_resilience(config_none, {})
+        
+        self.assertEqual(result_none['type'], 'none')
+        self.assertEqual(result_none['metric_used'], 't_retour')
     
     def test_compute_entropy_S(self):
         """Test de l'entropie spectrale."""

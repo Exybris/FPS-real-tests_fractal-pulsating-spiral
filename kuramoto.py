@@ -197,7 +197,8 @@ def run_kuramoto_simulation(config: Dict, loggers: Dict) -> Dict[str, Any]:
             'mean_high_effort': 0.0,
             'd_effort_dt': 0.0,
             't_retour': 0.0,
-            'max_median_ratio': 1.0
+            'max_median_ratio': 1.0,
+            'continuous_resilience': 1.0  # Valeur par défaut
         }
         
         # Écrire dans le CSV
@@ -274,6 +275,23 @@ def run_kuramoto_simulation(config: Dict, loggers: Dict) -> Dict[str, Any]:
     else:
         t_retour = 0.0
     
+    # Résilience continue pour perturbations non-ponctuelles
+    if pert_type in ['sinus', 'bruit', 'rampe'] and len(C_history) >= 20:
+        # Import de la fonction si disponible
+        try:
+            from metrics import compute_continuous_resilience
+            continuous_resilience = compute_continuous_resilience(
+                C_history, S_history, perturbation_active=True
+            )
+        except:
+            # Calcul simplifié si la fonction n'est pas disponible
+            C_mean = np.mean(C_history[-100:]) if len(C_history) >= 100 else np.mean(C_history)
+            C_std = np.std(C_history[-100:]) if len(C_history) >= 100 else np.std(C_history)
+            stability_score = C_mean / (1 + C_std) if C_mean > 0 else 0.0
+            continuous_resilience = min(1.0, stability_score)
+    else:
+        continuous_resilience = 0.5  # Valeur par défaut pour Kuramoto
+    
     # Résultats finaux
     results = {
         'logs': loggers.get('log_file', 'kuramoto_log.csv'),
@@ -288,7 +306,8 @@ def run_kuramoto_simulation(config: Dict, loggers: Dict) -> Dict[str, Any]:
             'entropy_S': entropy_S,
             't_retour': t_retour,
             'mean_effort': 0.0,  # Toujours 0 pour Kuramoto
-            'mode': 'Kuramoto'
+            'mode': 'Kuramoto',
+            'continuous_resilience': continuous_resilience
         },
         'history': history,
         'run_id': loggers['run_id'],

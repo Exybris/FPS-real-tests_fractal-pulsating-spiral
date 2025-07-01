@@ -1,0 +1,12 @@
+{
+  "run_id": "pipeline_20250629_214336_2c59cf",
+  "timestamp": "2025-06-29T21:43:36.459712",
+  "fps_version": "1.3",
+  "config_path": "fps_pipeline_output/run_20250629_214336/configs/config_pipeline_20250629_214336_2c59cf.json",
+  "system": {
+    "N": 5,
+    "T": 50,
+    "mode": "FPS",
+    "seed": 12345
+  }
+}

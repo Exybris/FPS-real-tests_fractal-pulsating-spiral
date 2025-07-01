@@ -2,7 +2,7 @@
 
 ## Vue d'ensemble
 
-Ce document recense toutes les hypothèses, simplifications et choix exploratoires de la phase 1 du projet FPS (Fractale Poétique Spiralée). Chaque hypothèse est **falsifiable** et **destinée à être raffinée** selon les observations empiriques.
+Ce document recense toutes les hypothèses, simplifications et choix exploratoires de la phase 1 du projet FPS (Fractal Pulsating Spiral). Chaque hypothèse est **falsifiable** et **destinée à être raffinée** selon les observations empiriques.
 
 ## 1. Hypothèses fondamentales
 
