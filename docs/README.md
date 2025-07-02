@@ -73,12 +73,8 @@ FPS_Project/
 ├── explore.py           # Détection d'émergences
 ├── visualize.py         # Visualisations et rapports
 ├── init.py              # Initialisation avec mode_suffix
-├── utils.py             # Utilitaires et validation
-├── analyze.py  # Génération rapport HTML
-├── main.py # calculate_empirical_score
-├── main.py   # Raffinement automatique
+├── utils.py             # 
 ```
-
 ### Workflow opérationnel
 
 1. **Configuration** : `config.json` avec paramètres dynamiques
