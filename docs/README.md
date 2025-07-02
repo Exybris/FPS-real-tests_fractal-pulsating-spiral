@@ -74,11 +74,9 @@ FPS_Project/
 ├── visualize.py         # Visualisations et rapports
 ├── init.py              # Initialisation avec mode_suffix
 ├── utils.py             # Utilitaires et validation
-├── checkpoint.py        # Sauvegarde/reprise de simulation
-├── report_generator.py  # Génération rapport HTML
-├── empirical_grid.py    # Grille d'évaluation 1-5
-├── auto_refinement.py   # Raffinement automatique
-└── temporal_regulation.py # Régulation temporelle η(t), θ(t)
+├── analyze.py  # Génération rapport HTML
+├── main.py # calculate_empirical_score
+├── main.py   # Raffinement automatique
 ```
 
 ### Workflow opérationnel
