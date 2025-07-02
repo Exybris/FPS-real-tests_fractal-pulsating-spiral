@@ -104,6 +104,7 @@ Où :
 
 ```python
 An_t[n] = A0 * compute_sigma(In_t[n], k, x0)
+env_factor = regulation.compute_env_n(error_n, t, env_mode,sigma_n_t, mu_n_t, T, env_type)
 ```
 
 Où `compute_sigma` est la fonction sigmoïde de plasticité.
