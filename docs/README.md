@@ -85,7 +85,7 @@ FPS_Project/
 
 ---
 
-## Équations mathématiques implémentées
+## Dernières équations mathématiques implémentées
 
 ### Signal global S(t) en mode extended
 
