@@ -103,8 +103,9 @@ Où :
 ### Dynamique des amplitudes An(t)
 
 ```python
-An_t[n] = A0 * compute_sigma(In_t[n], k, x0)
+base_amplitude = A0 * compute_sigma(In_t[n], k, x0)
 env_factor = regulation.compute_env_n(error_n, t, env_mode,sigma_n_t, mu_n_t, T, env_type)
+An_t[n] = base_amplitude * env_factor
 ```
 
 Où `compute_sigma` est la fonction sigmoïde de plasticité.
