@@ -10,7 +10,7 @@ METRIQUES_VALIDES = {
     "mean_abs_error", "mean_high_effort", "d_effort_dt", "t_retour",
     "max_median_ratio", "A_spiral(t)", "continuous_resilience", "adaptive_resilience",
     "En_mean(t)", "On_mean(t)", "gamma", "gamma_mean(t)", "In_mean(t)",
-    "An_mean(t)", "fn_mean(t)"
+    "An_mean(t)", "fn_mean(t)", "gamma_regime", "G_arch_used"
 }
 
 CRITERES_VALIDES = {
@@ -193,8 +193,8 @@ def validate_spiral(spiral, collector):
 def validate_regulation(regulation, collector):
     G_arch = regulation.get("G_arch")
     dynamic_G = regulation.get("dynamic_G")
-    if G_arch not in ["tanh", "sinc", "resonance", "spiral_log", "adaptive"]:
-        collector.add_error("regulation.G_arch doit être parmi ['tanh', 'sinc', 'resonance', 'spiral_log', 'adaptive']")
+    if G_arch not in ["tanh", "sinc", "resonance", "spiral_log", "adaptive", "adaptive_aware"]:
+        collector.add_error("regulation.G_arch doit être parmi ['tanh', 'sinc', 'resonance', 'spiral_log', 'adaptive', 'adaptive_aware']")
     if G_arch == "tanh":
         if regulation.get("lambda", 0) <= 0:
             collector.add_error("regulation.lambda doit être > 0 si G_arch == 'tanh'")
@@ -211,7 +211,7 @@ def validate_latence(latence, collector):
     strata_delay = latence.get("strata_delay", False)
     
     # Définir les modes valides au début
-    valid_gamma_modes = ["static", "dynamic", "sigmoid_up", "sigmoid_down", "sigmoid_adaptive", "sigmoid_oscillating", "sinusoidal"]
+    valid_gamma_modes = ["static", "dynamic", "sigmoid_up", "sigmoid_down", "sigmoid_adaptive", "sigmoid_oscillating", "sinusoidal", "adaptive_aware"]
 
     if gamma_mode not in valid_gamma_modes:
         collector.add_error(f"latence.gamma_mode doit être l'un de: {', '.join(valid_gamma_modes)}")

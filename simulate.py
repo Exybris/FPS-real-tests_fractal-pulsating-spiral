@@ -167,6 +167,12 @@ def run_fps_simulation(config, state, loggers, strict=False):
     history_align = []  # Stocke les timestamps où |E-O| < epsilon_E
     epsilon_E = config.get('regulation', {}).get('epsilon_E', 0.01)  # Seuil d'alignement
     
+    # NOUVEAU : État adaptatif pour gamma et G
+    adaptive_state = {
+        'gamma_journal': None,
+        'regulation_state': {}
+    }
+    
     # INITIALISER all_metrics ET t EN DEHORS DE LA BOUCLE
     all_metrics = {}
     t = 0
@@ -258,8 +264,22 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 gamma_dynamic = latence_config.get('gamma_dynamic', {})
                 k = gamma_dynamic.get('k', None)
                 t0 = gamma_dynamic.get('t0', None)
-                gamma_t = dynamics.compute_gamma(t, gamma_mode, T, k, t0)
+                
+                # NOUVEAU : Gérer le mode adaptive_aware
+                if gamma_mode == 'adaptive_aware':
+                    # Calculer gamma avec conscience de G
+                    gamma_t, gamma_regime, gamma_journal = dynamics.compute_gamma_adaptive_aware(
+                        t, state, history, config, adaptive_state['gamma_journal']
+                    )
+                    adaptive_state['gamma_journal'] = gamma_journal
                     
+                    # Mettre à jour gamma_n_t pour toutes les strates
+                    gamma_n_t[:] = gamma_t
+                else:
+                    # Modes classiques
+                    gamma_t = dynamics.compute_gamma(t, gamma_mode, T, k, t0)
+                    gamma_regime = 'classic'  # Pour les modes non-adaptatifs
+                
             except Exception as e:
                 print(f"❌ ERREUR CRITIQUE calculs dynamiques à t={t}: {e}")
                 import traceback
@@ -305,25 +325,56 @@ def run_fps_simulation(config, state, loggers, strict=False):
                     'G_values': []
                 }
                 
+                # NOUVEAU : Vérifier si on utilise G adaptatif
+                regulation_config = config.get('regulation', {})
+                G_arch_mode = regulation_config.get('G_arch', 'tanh')
+                G_archs_used = []
+                
+                # Initialiser G_params par défaut pour éviter l'erreur dans le bloc except
+                G_params = {
+                    'lambda': regulation_config.get('lambda', 1.0),
+                    'alpha': regulation_config.get('alpha', 1.0),
+                    'beta': regulation_config.get('beta', 2.0)
+                }
+                
                 for n in range(N):
                     beta_n = state[n]['beta']
-                    F_n_t[n] = dynamics.compute_Fn(t, beta_n, On_t[n], En_t[n], gamma_t, An_t[n], fn_t[n], config)
-                    
-                    # Calculer G pour le debug
                     error_n = On_t[n] - En_t[n]
-                    if config.get('regulation', {}).get('feedback_mode', 'simple') == 'simple':
-                        G_value = error_n  # Pas de régulation
+                    
+                    # NOUVEAU : Calculer G selon le mode configuré
+                    if G_arch_mode == 'adaptive_aware':
+                        # G adaptatif (peut fonctionner avec ou sans gamma adaptatif)
+                        G_value, G_arch_used, G_params = dynamics.compute_G_adaptive_aware(
+                            error_n, t, gamma_t, history, adaptive_state
+                        )
+                        G_archs_used.append(G_arch_used)
                     else:
-                        # Calculer G selon l'archétype
-                        G_arch = config.get('regulation', {}).get('G_arch', 'tanh')
-                        G_params = {
-                            'lambda': config.get('regulation', {}).get('lambda', 1.0),
-                            'alpha': config.get('regulation', {}).get('alpha', 1.0),
-                            'beta': config.get('regulation', {}).get('beta', 2.0)
-                        }
-                        G_value = regulation.compute_G(error_n, G_arch, G_params)
+                        # G statique selon config
+                        if config.get('regulation', {}).get('feedback_mode', 'simple') == 'simple':
+                            G_value = error_n  # Pas de régulation
+                            G_arch_used = 'identity'
+                        else:
+                            # Calculer G selon l'archétype configuré
+                            G_arch = config.get('regulation', {}).get('G_arch', 'tanh')
+                            G_params = {
+                                'lambda': config.get('regulation', {}).get('lambda', 1.0),
+                                'alpha': config.get('regulation', {}).get('alpha', 1.0),
+                                'beta': config.get('regulation', {}).get('beta', 2.0)
+                            }
+                            G_value = regulation.compute_G(error_n, G_arch, G_params)
+                            G_arch_used = G_arch
+                        G_archs_used.append(G_arch_used)
+                    
+                    # Calculer le feedback avec G_value déjà calculé
+                    F_n_t[n] = beta_n * G_value * gamma_t
                     
                     debug_log_data['G_values'].append(G_value)
+                
+                # Archétype dominant pour le logging
+                if G_archs_used:
+                    G_arch_dominant = max(set(G_archs_used), key=G_archs_used.count)
+                else:
+                    G_arch_dominant = G_arch_mode
                 
             except Exception as e:
                 print(f"⚠️ Erreur régulation à t={t}: {e}")
@@ -556,6 +607,7 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 'max_median_ratio': max_median_ratio,
                 'continuous_resilience': continuous_resilience,
                 'adaptive_resilience': adaptive_resilience,
+                'adaptive_resilience_score': adaptive_resilience_score,
                 'En_mean(t)': En_mean_t,
                 'On_mean(t)': On_mean_t,
                 'gamma': gamma_t,  # Ajouter gamma global
@@ -564,6 +616,9 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 'An_mean(t)': A_mean_t,
                 'fn_mean(t)': f_mean_t
             }
+            
+            # NOUVEAU : Les métriques adaptatives sont sauvegardées dans les fichiers JSON
+            # Pas besoin de les ajouter au CSV car elles sont mal encodées
             
             # Appliquer safe_float_conversion à toutes les métriques
             for key in all_metrics:
@@ -639,6 +694,23 @@ def run_fps_simulation(config, state, loggers, strict=False):
                     checkpoint_path = os.path.join(checkpoint_dir, f"{run_id}_backup_{step}.pkl")
                     utils.save_simulation_state(state, checkpoint_path)
             
+            # NOUVEAU : Sauvegarder périodiquement les découvertes couplées
+            # Pour T=50 avec dt=0.1, on a 500 steps, donc sauvegarder tous les 100 steps
+            save_interval = min(1000, max(100, int(len(t_array) / 5)))  # Au moins 5 sauvegardes
+            if gamma_mode == 'adaptive_aware' and step % save_interval == 0 and step > 0:
+                if adaptive_state['gamma_journal'] is not None:
+                    discoveries_path = os.path.join(
+                        loggers.get('output_dir', '.'), 
+                        f"discoveries_coupled_{run_id}_step{step}.json"
+                    )
+                    utils.save_coupled_discoveries(
+                        adaptive_state['gamma_journal'], 
+                        adaptive_state['regulation_state'], 
+                        discoveries_path
+                    )
+                    if config.get('debug', {}).get('save_discoveries', False):
+                        print(f"  💡 Découvertes sauvegardées: {discoveries_path}")
+            
             # ----------- 8. HISTORIQUE POUR ANALYSE -------------------
             history.append({
                 't': t, 'S': S_t, 'O': On_t, 'E': En_t, 'F': F_n_t,
@@ -659,7 +731,10 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 'fn_mean(t)': f_mean_t,
                 'continuous_resilience': continuous_resilience,
                 'adaptive_resilience': adaptive_resilience,
-                'adaptive_resilience_score': adaptive_resilience_score
+                'adaptive_resilience_score': adaptive_resilience_score,
+                'gamma': gamma_t,
+                'G_arch_used': G_arch_dominant if 'G_arch_dominant' in locals() else 'tanh',
+                'gamma_regime': gamma_regime if 'gamma_regime' in locals() else 'unknown'
             })
             cpu_steps.append(cpu_step)
             effort_history.append(effort_t)
@@ -721,6 +796,19 @@ def run_fps_simulation(config, state, loggers, strict=False):
             for key, writer_info in individual_csv_writers.items():
                 writer_info['file'].close()
             print(f"Fichiers individuels A_n_*.csv et f_n_*.csv exportés pour N={N}")
+        
+        # -- SAUVEGARDE FINALE DES DÉCOUVERTES ADAPTATIVES --
+        if gamma_mode == 'adaptive_aware' and adaptive_state['gamma_journal'] is not None:
+            final_discoveries_path = os.path.join(
+                loggers.get('output_dir', '.'), 
+                f"discoveries_coupled_{run_id}_final.json"
+            )
+            utils.save_coupled_discoveries(
+                adaptive_state['gamma_journal'], 
+                adaptive_state['regulation_state'], 
+                final_discoveries_path
+            )
+            print(f"  💡 Découvertes finales sauvegardées: {final_discoveries_path}")
 
         # -- EXPORTS ET SYNTHÈSE FINALE --
         logs = loggers['log_file']

@@ -500,26 +500,50 @@ def compute_continuous_resilience(C_history: List[float], S_history: List[float]
     if not perturbation_active or len(C_history) < 20:
         return 1.0  # Pas de perturbation ou pas assez de données
     
+    # Utiliser une fenêtre récente
+    window_size = min(100, len(C_history))
+    C_recent = C_history[-window_size:]
+    S_recent = S_history[-window_size:]
+    
     # 1. Stabilité de la cohérence sous perturbation
     # Une bonne résilience = C(t) reste élevé malgré la perturbation
-    C_mean = np.mean(C_history[-100:]) if len(C_history) >= 100 else np.mean(C_history)
-    C_std = np.std(C_history[-100:]) if len(C_history) >= 100 else np.std(C_history)
+    C_mean = np.mean(C_recent)
+    C_std = np.std(C_recent)
     
-    # Score de stabilité : pénaliser la variabilité
-    stability_score = C_mean / (1 + C_std) if C_mean > 0 else 0.0
+    # Score de stabilité de C(t)
+    C_stability_score = C_mean / (1 + C_std) if C_mean > 0 else 0.0
     
-    # 2. Capacité d'adaptation : mesurer si S(t) reste expressif
-    if len(S_history) >= 20:
-        S_recent = S_history[-50:] if len(S_history) >= 50 else S_history
-        S_power = np.mean(np.abs(S_recent))
+    # 2. Stabilité ET expressivité de S(t)
+    S_mean = np.mean(S_recent)
+    S_std = np.std(S_recent)
+    S_power = np.mean(np.abs(S_recent))
+    
+    if S_power > 0:
+        # Coefficient de variation - mesure de stabilité relative
+        S_cv = S_std / S_power
         
-        # Pénaliser si S(t) s'effondre (perte d'expressivité)
-        expressivity_score = np.tanh(S_power)  # Normaliser entre 0 et 1
+        # Score de stabilité de S(t) : CV faible = signal stable
+        if S_cv < 0.5:  # Très stable
+            S_stability_score = 1.0
+        elif S_cv < 1.0:  # Stable
+            S_stability_score = 0.9 - 0.2 * (S_cv - 0.5)
+        elif S_cv < 2.0:  # Moyennement stable
+            S_stability_score = 0.7 - 0.3 * (S_cv - 1.0)
+        else:  # Instable
+            S_stability_score = 0.4
+        
+        # Score d'expressivité : le signal garde son amplitude
+        expressivity_score = np.tanh(2 * S_power)  # Saturation douce
+        
+        # Combiner stabilité et expressivité de S(t)
+        S_combined_score = 0.6 * S_stability_score + 0.4 * expressivity_score
     else:
-        expressivity_score = 0.5
+        # Signal effondré
+        S_combined_score = 0.0
     
     # 3. Résilience combinée
-    continuous_resilience = 0.7 * stability_score + 0.3 * expressivity_score
+    # Pondération : C(t) reste le plus important, mais S(t) compte significativement
+    continuous_resilience = 0.6 * C_stability_score + 0.4 * S_combined_score
     
     return float(np.clip(continuous_resilience, 0.0, 1.0))
 
@@ -909,3 +933,122 @@ if __name__ == "__main__":
         print(f"  {metric}: {'DÉPASSÉ' if exceeded else 'OK'}")
     
     print("\n✅ Module metrics.py prêt pour quantifier l'harmonie!")
+
+
+# ============== MÉTRIQUES GLOBALES ET SCORES ==============
+
+def calculate_all_scores(recent_history: List[Dict]) -> Dict[str, Dict[str, float]]:
+    """
+    Calcule les scores normalisés (1-5) pour toutes les métriques FPS.
+    Utilisé par compute_gamma_adaptive_aware pour évaluer la performance système.
+    
+    Args:
+        recent_history: historique récent des métriques
+        
+    Returns:
+        dict avec scores normalisés pour chaque métrique
+    """
+    if len(recent_history) < 5:
+        # Pas assez d'historique, scores neutres
+        return {
+            'current': {
+                'stability': 3,
+                'regulation': 3,
+                'fluidity': 3,
+                'resilience': 3,
+                'innovation': 3,
+                'cpu_cost': 3,
+                'effort': 3
+            }
+        }
+    
+    # Extraire les métriques récentes
+    recent_S = [h.get('S(t)', 0) for h in recent_history]
+    recent_errors = [h.get('mean_abs_error', 0) for h in recent_history]
+    recent_efforts = [h.get('effort(t)', 0) for h in recent_history]
+    recent_cpu = [h.get('cpu_step(t)', 0) for h in recent_history]
+    recent_entropy = [h.get('entropy_S', 0.5) for h in recent_history]
+    recent_fluidity = [h.get('fluidity', 1.0) for h in recent_history]
+    recent_C = [h.get('C(t)', 1.0) for h in recent_history]
+    
+    # NOUVEAU: Utiliser adaptive_resilience si disponible
+    recent_adaptive_resilience = [h.get('adaptive_resilience', None) for h in recent_history]
+    recent_continuous_resilience = [h.get('continuous_resilience', None) for h in recent_history]
+    
+    # Calculer les scores (1-5)
+    scores = {}
+    
+    # Stabilité : basée sur std(S) et variations de C(t)
+    std_S = np.std(recent_S) if recent_S else 1.0
+    stability_score = 5 if std_S < 0.5 else 4 if std_S < 1.0 else 3 if std_S < 2.0 else 2 if std_S < 3.0 else 1
+    scores['stability'] = stability_score
+    
+    # Régulation : basée sur l'erreur moyenne
+    mean_error = np.mean(recent_errors) if recent_errors else 1.0
+    regulation_score = 5 if mean_error < 0.1 else 4 if mean_error < 0.3 else 3 if mean_error < 0.5 else 2 if mean_error < 1.0 else 1
+    scores['regulation'] = regulation_score
+    
+    # Fluidité : directement depuis la métrique
+    mean_fluidity = np.mean(recent_fluidity) if recent_fluidity else 0.5
+    fluidity_score = 5 if mean_fluidity > 0.9 else 4 if mean_fluidity > 0.7 else 3 if mean_fluidity > 0.5 else 2 if mean_fluidity > 0.3 else 1
+    scores['fluidity'] = fluidity_score
+    
+    # Résilience : utiliser adaptive_resilience en priorité
+    resilience_score = 3  # Par défaut
+    
+    # D'abord essayer adaptive_resilience
+    valid_adaptive_resilience = [r for r in recent_adaptive_resilience if r is not None]
+    if valid_adaptive_resilience:
+        mean_adaptive_resilience = np.mean(valid_adaptive_resilience)
+        # adaptive_resilience est déjà normalisé [0-1]
+        if mean_adaptive_resilience >= 0.90:
+            resilience_score = 5
+        elif mean_adaptive_resilience >= 0.75:
+            resilience_score = 4
+        elif mean_adaptive_resilience >= 0.60:
+            resilience_score = 3
+        elif mean_adaptive_resilience >= 0.40:
+            resilience_score = 2
+        else:
+            resilience_score = 1
+    # Sinon essayer continuous_resilience
+    elif recent_continuous_resilience:
+        valid_continuous_resilience = [r for r in recent_continuous_resilience if r is not None]
+        if valid_continuous_resilience:
+            mean_continuous_resilience = np.mean(valid_continuous_resilience)
+            if mean_continuous_resilience >= 0.90:
+                resilience_score = 5
+            elif mean_continuous_resilience >= 0.75:
+                resilience_score = 4
+            elif mean_continuous_resilience >= 0.60:
+                resilience_score = 3
+            elif mean_continuous_resilience >= 0.40:
+                resilience_score = 2
+            else:
+                resilience_score = 1
+    # En dernier recours, utiliser C(t) comme proxy (ancienne méthode)
+    else:
+        C_recovery = np.mean(recent_C[-5:]) if len(recent_C) >= 5 else 0.5
+        resilience_score = 5 if C_recovery > 0.9 else 4 if C_recovery > 0.7 else 3 if C_recovery > 0.5 else 2 if C_recovery > 0.3 else 1
+    
+    scores['resilience'] = resilience_score
+    
+    # Innovation : basée sur l'entropie
+    mean_entropy = np.mean(recent_entropy) if recent_entropy else 0.5
+    innovation_score = 5 if mean_entropy > 0.8 else 4 if mean_entropy > 0.6 else 3 if mean_entropy > 0.4 else 2 if mean_entropy > 0.2 else 1
+    scores['innovation'] = innovation_score
+    
+    # Coût CPU
+    mean_cpu = np.mean(recent_cpu) if recent_cpu else 0.01
+    cpu_score = 5 if mean_cpu < 0.001 else 4 if mean_cpu < 0.01 else 3 if mean_cpu < 0.1 else 2 if mean_cpu < 1.0 else 1
+    scores['cpu_cost'] = cpu_score
+    
+    # Effort interne
+    mean_effort = np.mean(recent_efforts) if recent_efforts else 1.0
+    effort_score = 5 if mean_effort < 0.5 else 4 if mean_effort < 1.0 else 3 if mean_effort < 2.0 else 2 if mean_effort < 3.0 else 1
+    scores['effort'] = effort_score
+    
+    return {'current': scores}
+
+
+# ============== EXPORT DES MÉTRIQUES ==============

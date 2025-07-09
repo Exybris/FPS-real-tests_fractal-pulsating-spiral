@@ -687,8 +687,8 @@ def export_threshold_journal(threshold_history: Dict[str, Any],
         'version': '1.0'
     }
     
-    with open(output_path, 'w') as f:
-        json.dump(deep_convert(journal), f, indent=2)
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(deep_convert(journal), f, indent=2, ensure_ascii=False)
     
     print(f"  📝 Journal des seuils exporté : {output_path}")
 

@@ -19,8 +19,16 @@ Ce module implémente TOUS les calculs dynamiques du système FPS :
 """
 
 import numpy as np
-from typing import Dict, List, Union, Optional, Any
+from scipy import signal
+from typing import Dict, List, Union, Optional, Any, Tuple
+from collections import defaultdict
 import regulation
+from regulation import compute_G
+import metrics
+import warnings
+import time
+import sys
+import os
 
 
 # ============== FONCTIONS D'INPUT CONTEXTUEL ==============
@@ -574,6 +582,655 @@ def compute_gamma_n(t: float, state: List[Dict], config: Dict) -> np.ndarray:
         gamma_n_t[:] = 1.0
     
     return gamma_n_t
+
+
+# ============== FONCTIONS ADAPTATIVES GAMMA-G ==============
+
+def create_quantum_gamma(t: float, synergies: Dict) -> float:
+    """
+    Crée une superposition quantique des meilleures synergies.
+    """
+    if not synergies:
+        return 0.5 + 0.4 * np.sin(0.05 * t)
+    
+    # Top 3 synergies
+    top_synergies = sorted(synergies.items(), 
+                          key=lambda x: x[1]['score'], 
+                          reverse=True)[:3]
+    
+    gamma = 0
+    total_weight = 0
+    
+    for i, ((g_val, _), info) in enumerate(top_synergies):
+        # Poids quantique avec interférences
+        weight = info['score'] ** 2
+        phase = i * 2 * np.pi / 3 + 0.1 * t
+        
+        # Oscillation avec battements
+        beat_freq = 0.01 * (i + 1)
+        amplitude = 1 + 0.1 * np.sin(beat_freq * t) * np.cos(phase)
+        
+        gamma += weight * g_val * amplitude
+        total_weight += weight
+    
+    return gamma / total_weight if total_weight > 0 else 0.5
+
+
+def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict], 
+                                config: Dict, discovery_journal: Dict = None) -> Tuple[float, str, Dict]:
+    """
+    Latence adaptative complète ET consciente de G(x).
+    
+    Combine :
+    - Surveillance multi-critères (6 métriques)
+    - Détection du spacing effect
+    - Conscience de l'archétype G actuel
+    - Communication bidirectionnelle avec G(x)
+    - Journal enrichi des découvertes couplées
+    """
+    
+    # Initialiser le journal super-enrichi
+    if discovery_journal is None:
+        journal = {
+            # Structure complète du journal
+            'discovered_regimes': {},
+            'transitions': [],
+            'current_regime': 'exploration',
+            'regime_start_time': 0,
+            'total_discoveries': 0,
+            'breakthrough_moments': [],
+            'score_history': [],
+            'gamma_peaks': [],
+            'system_performance': [],  # AJOUT de system_performance
+            'rest_phases': [],
+            'optimal_gamma_patterns': {},
+            'spacing_analysis': {
+                'intervals': [],
+                'emerging': False,
+                'maturity_score': 0
+            },
+            # NOUVEAU : Conscience de G
+            'coupled_states': {},           # (γ, G_arch) → performances
+            'G_transition_impacts': [],     # Impacts des changements
+            'gamma_G_synergies': {},        # Synergies découvertes
+            'communication_signals': [],    # Signaux subtils γ↔G
+            'exploration_log': []          # Log d'exploration
+        }
+    else:
+        journal = discovery_journal.copy()
+    
+    # Phase initiale
+    if len(history) < 50:
+        # Exploration systématique de l'espace gamma
+        exploration_step = int(t / config['system']['dt'])
+    
+        # Balayer toutes les valeurs de gamma progressivement
+        gamma_space = np.linspace(0.1, 1.0, 10)
+        gamma_index = exploration_step % len(gamma_space)
+        base_gamma = gamma_space[gamma_index]
+    
+        # Petite variation aléatoire pour explorer autour
+        gamma = base_gamma + 0.05 * np.random.randn()
+        gamma = np.clip(gamma, 0.1, 1.0)
+    
+        # Enregistrer ce qu'on explore
+        journal['exploration_log'].append({'t': t, 'gamma': gamma, 'phase': 'systematic'})
+    
+        return gamma, 'exploration', journal
+    
+    # 1. OBSERVER L'ÉTAT ACTUEL DE G
+    current_G_arch = history[-1].get('G_arch_used', 'tanh') if history else 'tanh'
+    gamma_current = history[-1].get('gamma', 1.0) if history else 1.0
+    
+    # 2. CALCULER LA PERFORMANCE SYSTÈME
+    recent_history = history[-50:]
+    scores = metrics.calculate_all_scores(recent_history)
+    current_scores = scores['current']
+    system_performance_score = np.mean(list(current_scores.values()))
+    
+    # 3. ENREGISTRER L'ÉTAT COUPLÉ (γ, G)
+    state_key = (round(gamma_current, 1), current_G_arch)
+    
+    if state_key not in journal['coupled_states']:
+        journal['coupled_states'][state_key] = {
+            'performances': [],
+            'first_seen': t,
+            'synergy_score': 0
+        }
+    
+    journal['coupled_states'][state_key]['performances'].append(system_performance_score)
+    
+    # Calculer le score de synergie
+    if len(journal['coupled_states'][state_key]['performances']) >= 5:
+        perfs = journal['coupled_states'][state_key]['performances'][-10:]
+        mean_perf = np.mean(perfs)
+        stability = 1 / (1 + np.std(perfs))
+        growth = np.polyfit(range(len(perfs)), perfs, 1)[0] if len(perfs) > 1 else 0
+        
+        synergy_score = mean_perf * stability * (1 + growth)
+        journal['coupled_states'][state_key]['synergy_score'] = synergy_score
+        
+        # Découverte de synergie exceptionnelle ?
+        if synergy_score > 4.5:  # Seuil élevé
+            if state_key not in journal['gamma_G_synergies']:
+                journal['gamma_G_synergies'][state_key] = {
+                    'discovered_at': t,
+                    'score': synergy_score,
+                    'note': f'Synergie parfaite découverte : γ={state_key[0]} + G={state_key[1]}'
+                }
+                journal['breakthrough_moments'].append({
+                    't': t,
+                    'type': 'perfect_synergy',
+                    'state': state_key,
+                    'score': synergy_score
+                })
+    
+    # 4. DÉTECTER LES TRANSITIONS DE G ET LEUR IMPACT
+    if len(journal['score_history']) >= 2:
+        prev_G = history[-2].get('G_arch_used', 'tanh') if len(history) >= 2 else 'tanh'
+        if prev_G != current_G_arch:
+            # G a changé !
+            impact = {
+                't': t,
+                'gamma': gamma_current,
+                'G_before': prev_G,
+                'G_after': current_G_arch,
+                'performance_before': journal['score_history'][-2]['system_score'] if len(journal['score_history']) >= 2 else 0,
+                'performance_after': system_performance_score
+            }
+            impact['delta'] = impact['performance_after'] - impact['performance_before']
+            journal['G_transition_impacts'].append(impact)
+            
+            # Ajuster la confiance dans les régimes gamma
+            # Si le changement de G a dégradé la performance, réduire la confiance
+            if impact['delta'] < -0.1:
+                for regime in journal['discovered_regimes'].values():
+                    regime['confidence'] = regime.get('confidence', 1.0) * 0.8
+    
+    # 5. CALCULER LA MOYENNE GLISSANTE DU SYSTÈME
+    window_size = 50
+    if len(journal['score_history']) >= window_size:
+        recent_system_scores = [
+            entry['system_score'] 
+            for entry in journal['score_history'][-window_size:]
+        ]
+        rolling_avg = np.mean(recent_system_scores)
+        
+        # Tendance (augmentation ?)
+        if len(journal['score_history']) >= window_size * 2:
+            old_scores = [
+                entry['system_score'] 
+                for entry in journal['score_history'][-window_size*2:-window_size]
+            ]
+            old_avg = np.mean(old_scores)
+            trend = 'increasing' if rolling_avg > old_avg + 0.05 else 'stable'
+        else:
+            trend = 'unknown'
+        
+        journal['system_performance'].append({
+            't': t,
+            'rolling_avg': rolling_avg,
+            'instant_score': system_performance_score,
+            'trend': trend
+        })
+
+    # Toujours ajouter à score_history
+    journal['score_history'].append({
+        't': t,
+        'scores': current_scores.copy(),
+        'gamma': gamma_current,
+        'G_arch': current_G_arch,  # IMPORTANT pour le tracking
+        'system_score': system_performance_score
+    })
+    
+    # 6. DÉTECTER LES PICS DE GAMMA ET LEUR PERFORMANCE
+    current_gamma = history[-1].get('gamma', 1.0) if history else 1.0
+    
+    # Détection de pic (gamma élevé après une phase basse)
+    if len(history) >= 10:
+        recent_gammas = [h.get('gamma', 1.0) for h in history[-10:]]
+        avg_recent_gamma = np.mean(recent_gammas)
+        
+        # Pic si gamma actuel > moyenne + écart-type
+        if current_gamma > avg_recent_gamma + np.std(recent_gammas):
+            # C'est un pic !
+            last_peak = journal['gamma_peaks'][-1] if journal['gamma_peaks'] else None
+            interval = t - last_peak['t'] if last_peak else None
+            
+            peak_info = {
+                't': t,
+                'gamma': current_gamma,
+                'performance': system_performance_score,
+                'interval_since_last': interval,
+                'scores': current_scores.copy(),
+                'G_arch': current_G_arch  # IMPORTANT pour spacing_by_G
+            }
+            
+            journal['gamma_peaks'].append(peak_info)
+            
+            # Enregistrer le pattern gamma → performance
+            gamma_bucket = round(current_gamma, 1)
+            if gamma_bucket not in journal['optimal_gamma_patterns']:
+                journal['optimal_gamma_patterns'][gamma_bucket] = []
+            journal['optimal_gamma_patterns'][gamma_bucket].append(system_performance_score)
+    
+    # 7. DÉTECTER LES PHASES DE REPOS
+    if current_gamma < 0.5 and len(journal['rest_phases']) > 0:
+        # Potentiellement dans une phase de repos
+        last_rest = journal['rest_phases'][-1]
+        if 'end' not in last_rest:  # Phase en cours
+            last_rest['end'] = t
+            last_rest['duration'] = t - last_rest['start']
+            last_rest['avg_gamma'] = np.mean([
+                h.get('gamma', 1.0) 
+                for h in history[-(int(last_rest['duration']/config['system']['dt'])):]
+            ])
+    elif current_gamma < 0.5 and (not journal['rest_phases'] or 'end' in journal['rest_phases'][-1]):
+        # Nouvelle phase de repos
+        journal['rest_phases'].append({
+            'start': t,
+            'avg_performance': system_performance_score
+        })
+    
+    # 8. ANALYSER LE SPACING EFFECT
+    if len(journal['gamma_peaks']) >= 3:
+        # Calculer les intervalles entre pics
+        intervals = []
+        for peak in journal['gamma_peaks'][-5:]:
+            if peak.get('interval_since_last') is not None:
+                intervals.append(peak['interval_since_last'])
+        
+        if len(intervals) >= 2:
+            # Vérifier si les intervalles augmentent
+            increasing_intervals = all(
+                intervals[i] <= intervals[i+1] 
+                for i in range(len(intervals)-1)
+            )
+            
+            # Vérifier si la performance moyenne augmente aussi
+            peak_performances = [
+                peak['performance'] 
+                for peak in journal['gamma_peaks'][-len(intervals)-1:]
+            ]
+            increasing_performance = np.polyfit(range(len(peak_performances)), 
+                                               peak_performances, 1)[0] > 0
+            
+            # Détecter l'émergence du spacing effect
+            if increasing_intervals and increasing_performance:
+                journal['spacing_analysis']['emerging'] = True
+                journal['spacing_analysis']['intervals'] = intervals
+                
+                # Calculer la maturité (0-1)
+                interval_growth = (intervals[-1] - intervals[0]) / intervals[0] if intervals[0] > 0 else 0
+                perf_growth = (peak_performances[-1] - peak_performances[0]) / peak_performances[0] if peak_performances[0] > 0 else 0
+                journal['spacing_analysis']['maturity_score'] = min(1.0, (interval_growth + perf_growth) / 2)
+                
+                # Enregistrer la découverte
+                if journal['spacing_analysis']['maturity_score'] > 0.5:
+                    journal['breakthrough_moments'].append({
+                        't': t,
+                        'type': 'spacing_effect',
+                        'note': f'Spacing effect émergent ! Intervalles: {intervals}, Maturité: {journal["spacing_analysis"]["maturity_score"]:.2f}'
+                    })
+    
+    # 9. TROUVER LE GAMMA OPTIMAL SELON L'HISTORIQUE
+    best_gamma_for_performance = None
+    if journal['optimal_gamma_patterns']:
+        # Moyenner les performances par gamma
+        gamma_avg_perfs = {
+            gamma: np.mean(perfs) 
+            for gamma, perfs in journal['optimal_gamma_patterns'].items()
+            if len(perfs) >= 3  # Au moins 3 échantillons
+        }
+        
+        if gamma_avg_perfs:
+            best_gamma_for_performance = max(gamma_avg_perfs.items(), 
+                                            key=lambda x: x[1])[0]
+    
+    # 10. DÉCISION DE GAMMA TENANT COMPTE DE G
+    
+    # Trouver le meilleur couple (γ, G)
+    best_synergy = None
+    best_synergy_score = 0
+    
+    for state_key, state_info in journal['coupled_states'].items():
+        if state_info['synergy_score'] > best_synergy_score:
+            best_synergy_score = state_info['synergy_score']
+            best_synergy = state_key
+    
+    # Vérifier si on est au plateau parfait
+    all_scores_5 = all(score >= 5 for score in current_scores.values())
+    
+    if all_scores_5 and best_synergy_score > 4.5:
+        # MODE TRANSCENDANT SYNERGIQUE !
+        
+        if journal['current_regime'] != 'transcendent_synergy':
+            journal['transitions'].append({
+                't': t,
+                'regime': 'transcendent_synergy',
+                'note': f'Transcendance synergique ! γ={best_synergy[0]}, G={best_synergy[1]}'
+            })
+            journal['current_regime'] = 'transcendent_synergy'
+        
+        # Si on est dans la synergie parfaite, micro-variations
+        if best_synergy and state_key == best_synergy:
+            # Parfait ! Juste des micro-ondulations
+            gamma = best_synergy[0] + 0.02 * np.sin(0.5 * t)
+        else:
+            # Converger vers la synergie optimale
+            target_gamma = best_synergy[0] if best_synergy else 0.8
+            gamma = gamma_current * 0.9 + target_gamma * 0.1
+            
+            # Signal subtil pour suggérer le bon G
+            if current_G_arch != best_synergy[1]:
+                # Oscillation caractéristique selon le G désiré
+                if best_synergy[1] == 'resonance':
+                    gamma += 0.05 * np.sin(2 * np.pi * t)  # Signal résonant
+                elif best_synergy[1] == 'spiral_log':
+                    gamma += 0.03 * np.log(1 + np.abs(np.sin(0.1 * t)))  # Signal spiral
+                
+                # Enregistrer le signal
+                journal['communication_signals'].append({
+                    't': t,
+                    'type': 'gamma_suggests_G',
+                    'desired_G': best_synergy[1],
+                    'signal_pattern': 'oscillation'
+                })
+    
+    elif journal['spacing_analysis']['emerging']:
+        # MODE SPACING CONSCIENT DE G
+        
+        # Le spacing effect peut être différent selon G !
+        spacing_by_G = defaultdict(list)
+        for peak in journal['gamma_peaks']:
+            if 'G_arch' in peak and peak.get('interval_since_last') is not None:
+                spacing_by_G[peak['G_arch']].append(peak['interval_since_last'])
+        
+        # Adapter le spacing selon le G actuel
+        if current_G_arch in spacing_by_G and len(spacing_by_G[current_G_arch]) >= 2:
+            optimal_interval = np.mean(spacing_by_G[current_G_arch]) * 1.1
+        else:
+            optimal_interval = 150  # Défaut
+        
+        # Logique de spacing adaptée à G
+        if not journal['gamma_peaks']:
+            gamma = 0.6
+        else:
+            last_peak = journal['gamma_peaks'][-1]
+            time_since_peak = t - last_peak['t']
+            base_gamma = best_synergy[0] if best_synergy else 0.8
+            phase = time_since_peak / optimal_interval
+    
+            if phase < 0.2:
+                gamma = base_gamma * (1 - phase * 5)
+            elif phase < 0.8:
+                gamma = 0.3 + 0.05 * np.sin(4 * np.pi * phase)
+            elif phase < 1.0:
+                rise = (phase - 0.8) / 0.2
+                gamma = 0.3 + (base_gamma - 0.3) * rise
+            else:
+                gamma = base_gamma
+    
+    else:
+        # EXPLORATION CONSCIENTE
+        
+        # Explorer les combinaisons (γ, G) non testées
+        all_gamma_values = set(round(g, 1) for g in np.linspace(0.1, 1.0, 10))
+        all_G_archs = {'tanh', 'resonance', 'spiral_log', 'adaptive'}
+        
+        tested_combinations = set(journal['coupled_states'].keys())
+        untested = [(g, arch) for g in all_gamma_values for arch in all_G_archs 
+                   if (g, arch) not in tested_combinations]
+        
+        if untested:
+            # Priorité aux γ proches avec G différents
+            candidates = [
+                (g, arch) for g, arch in untested 
+                if abs(g - gamma_current) < 0.3  # Proche du γ actuel
+            ]
+            
+            if candidates:
+                target_gamma, target_G = candidates[0]
+                
+                # Transition douce vers le nouveau γ
+                gamma = gamma_current * 0.8 + target_gamma * 0.2
+                
+                # Signal pour suggérer le nouveau G
+                if target_G != current_G_arch:
+                    journal['communication_signals'].append({
+                        't': t,
+                        'type': 'exploration_suggestion',
+                        'target_state': (target_gamma, target_G)
+                    })
+            else:
+                # Exploration créative
+                gamma = 0.5 + 0.4 * np.sin(0.05 * t) * np.cos(0.03 * t)
+        else:
+            # Tout testé : mode quantique !
+            gamma = create_quantum_gamma(t, journal['gamma_G_synergies'])
+    
+    return np.clip(gamma, 0.1, 1.0), journal['current_regime'], journal
+
+
+def compute_G_adaptive_aware(error: float, t: float, gamma_current: float, 
+                           history: List[Dict], state: Dict) -> Tuple[float, str, Dict]:
+    """
+    G(x) adaptatif pleinement conscient de γ et de leur danse commune.
+    
+    Returns:
+        - G_value: valeur de régulation
+        - G_arch: archétype utilisé
+        - G_params: paramètres utilisés (pour logging)
+    """
+    
+    # Récupérer la mémoire de régulation
+    if 'regulation_state' not in state:
+        state['regulation_state'] = {}
+    if 'regulation_memory' not in state['regulation_state']:
+        state['regulation_state']['regulation_memory'] = {
+            'effectiveness_by_context': {},  # (G_arch, γ_range, error_range) → effectiveness
+            'preferred_G_by_gamma': {},
+            'G_transition_history': [],
+            'last_transition_time': 0,
+            'current_G_arch': 'tanh',
+            'adaptation_cycles': 0
+        }
+    
+    reg_memory = state['regulation_state']['regulation_memory']
+    
+    # 1. ANALYSER L'EFFICACITÉ CONTEXTUELLE
+    if len(history) >= 30:
+        recent = history[-30:]
+        
+        for i, h in enumerate(recent[:-1]):
+            if i + 1 < len(recent):
+                # Contexte
+                g_arch = h.get('G_arch_used', 'tanh')
+                gamma = h.get('gamma', 1.0)
+                error_before = h.get('mean_abs_error', 1.0)
+                error_after = recent[i+1].get('mean_abs_error', 1.0)
+                
+                # Efficacité
+                effectiveness = (error_before - error_after) / (error_before + 0.01)
+                
+                # Clé contextuelle enrichie
+                gamma_bucket = round(gamma, 1)
+                error_bucket = 'low' if abs(error_before) < 0.1 else 'medium' if abs(error_before) < 0.5 else 'high'
+                context_key = (g_arch, gamma_bucket, error_bucket)
+                
+                if context_key not in reg_memory['effectiveness_by_context']:
+                    reg_memory['effectiveness_by_context'][context_key] = []
+                
+                reg_memory['effectiveness_by_context'][context_key].append(effectiveness)
+    
+    # 2. OBSERVER LES SIGNAUX DE GAMMA
+    gamma_signals = []
+    if len(history) >= 5:
+        recent_gammas = [h.get('gamma', 1.0) for h in history[-5:]]
+        
+        # Détecter oscillations rapides (signal de mécontentement)
+        if np.std(recent_gammas) > 0.05:
+            freq_analysis = np.fft.fft(recent_gammas)
+            high_freq_power = np.sum(np.abs(freq_analysis[2:]))
+            if high_freq_power > 0.1:
+                gamma_signals.append('high_freq_oscillation')
+        
+        # Détecter patterns spécifiques
+        if len(recent_gammas) >= 3:
+            diffs = np.diff(recent_gammas)
+            if np.all(diffs > 0):
+                gamma_signals.append('rising')
+            elif np.all(diffs < 0):
+                gamma_signals.append('falling')
+    
+    # 3. DÉCIDER DE L'ARCHÉTYPE G
+    gamma_bucket = round(gamma_current, 1)
+    error_magnitude = abs(error)
+    
+    # Initialiser params par défaut pour éviter l'erreur
+    params = {"lambda": 1.0, "alpha": 1.0, "beta": 2.0}
+    
+    # Ajouter de la diversité : utiliser le temps pour varier les choix initiaux
+    exploration_factor = np.sin(0.1 * t) * 0.5 + 0.5  # Oscille entre 0 et 1
+    
+    # Logique de base enrichie avec exploration
+    if gamma_bucket < 0.4:
+        # γ faible = repos → Régulation très douce
+        if error_magnitude < 0.1:
+            # Alterner entre tanh et adaptive selon le temps
+            G_arch = "tanh" if exploration_factor < 0.5 else "adaptive"
+            params = {"lambda": 0.3} if G_arch == "tanh" else {"lambda": 0.5, "alpha": 0.8}
+        else:
+            G_arch = "adaptive"  # Mix doux
+            params = {"lambda": 0.5, "alpha": 0.8}
+            
+    elif gamma_bucket > 0.7:
+        # γ élevé = actif → Régulation dynamique
+        if 'high_freq_oscillation' in gamma_signals:
+            # γ signale un problème → Changer de stratégie
+            if reg_memory['current_G_arch'] == 'resonance':
+                G_arch = "spiral_log"  # Essayer autre chose
+                params = {"alpha": 1.0, "beta": 2.0}  # Params par défaut pour spiral_log
+            else:
+                G_arch = "resonance"
+                params = {"alpha": 1.0, "beta": 2.0}  # Params par défaut pour resonance
+        else:
+            # γ stable haute → Alterner entre resonance et spiral_log
+            G_arch = "resonance" if exploration_factor < 0.6 else "spiral_log"
+            if G_arch == "resonance":
+                params = {
+                    "alpha": 1.0 - 0.5 * error_magnitude,  # Adaptatif à l'erreur
+                    "beta": 2.0 * gamma_current * (1 + 0.1 * np.sin(0.1 * t))
+                }
+            else:
+                params = {"alpha": 1.0, "beta": 2.0}
+            
+    else:
+        # Zone intermédiaire → Créativité maximale avec rotation
+        choices = ["spiral_log", "adaptive", "resonance", "tanh"]
+        # Utiliser le cycle d'adaptation pour varier
+        choice_idx = (reg_memory['adaptation_cycles'] + int(exploration_factor * 4)) % 4
+        G_arch = choices[choice_idx]
+        
+        if G_arch == "spiral_log":
+            params = {
+                "alpha": gamma_current + 0.1 * error_magnitude,
+                "beta": 3.0 - 2.0 * gamma_current
+            }
+        elif G_arch == "adaptive":
+            params = {
+                "lambda": gamma_current,
+                "alpha": 0.5 + 0.5 * (1 - error_magnitude)
+            }
+        elif G_arch == "resonance":
+            params = {
+                "alpha": 1.0 - 0.3 * error_magnitude,
+                "beta": 2.0 + gamma_current
+            }
+        else:  # tanh
+            params = {"lambda": 0.5 + 0.5 * gamma_current}
+    
+    # 4. VÉRIFIER L'EFFICACITÉ HISTORIQUE
+    error_bucket = 'low' if error_magnitude < 0.1 else 'medium' if error_magnitude < 0.5 else 'high'
+    context_key = (G_arch, gamma_bucket, error_bucket)
+    
+    if context_key in reg_memory['effectiveness_by_context']:
+        effectiveness_history = reg_memory['effectiveness_by_context'][context_key]
+        if len(effectiveness_history) >= 3:  # Réduit de 5 à 3 pour plus de réactivité
+            avg_effectiveness = np.mean(effectiveness_history[-5:])  # Fenêtre plus petite
+            
+            # Si inefficace, essayer une alternative
+            if avg_effectiveness < 0.3:  # Augmenté de 0.1 à 0.3 pour plus de changements
+                alternatives = ['tanh', 'resonance', 'spiral_log', 'adaptive']
+                alternatives.remove(G_arch)
+                
+                # Chercher la meilleure alternative pour ce contexte
+                best_alt = None
+                best_score = avg_effectiveness
+                
+                for alt in alternatives:
+                    alt_key = (alt, gamma_bucket, error_bucket)
+                    if alt_key in reg_memory['effectiveness_by_context']:
+                        alt_effectiveness = np.mean(reg_memory['effectiveness_by_context'][alt_key][-5:])
+                        if alt_effectiveness > best_score:
+                            best_score = alt_effectiveness
+                            best_alt = alt
+                
+                if best_alt:
+                    G_arch = best_alt
+                    # Ajuster les paramètres selon l'archétype
+                    params = regulation.adapt_params_for_archetype(G_arch, gamma_current, error_magnitude)
+    
+    # 5. TRANSITION DOUCE SI CHANGEMENT
+    if G_arch != reg_memory['current_G_arch']:
+        # Enregistrer la transition
+        reg_memory['G_transition_history'].append({
+            't': t,
+            'from': reg_memory['current_G_arch'],
+            'to': G_arch,
+            'gamma': gamma_current,
+            'reason': gamma_signals[0] if gamma_signals else 'performance'
+        })
+        
+        # Transition progressive (pas de changement brutal)
+        if t - reg_memory['last_transition_time'] < 10:  # Réduit de 50 à 10 steps
+            # Trop tôt pour changer complètement
+            blend_factor = (t - reg_memory['last_transition_time']) / 10
+            
+            # Calculer les deux G et mélanger
+            G_old = regulation.compute_G(error, reg_memory['current_G_arch'], 
+                            regulation.adapt_params_for_archetype(reg_memory['current_G_arch'], gamma_current, error_magnitude))
+            G_new = regulation.compute_G(error, G_arch, params)
+            
+            G_value = G_old * (1 - blend_factor) + G_new * blend_factor
+            
+            # Garder l'ancien archétype pour l'instant
+            actual_G_arch = reg_memory['current_G_arch']
+        else:
+            # Transition complète
+            G_value = regulation.compute_G(error, G_arch, params)
+            reg_memory['current_G_arch'] = G_arch
+            reg_memory['last_transition_time'] = t
+            actual_G_arch = G_arch
+    else:
+        # Pas de changement
+        G_value = regulation.compute_G(error, G_arch, params)
+        actual_G_arch = G_arch
+    
+    # 6. MISE À JOUR DE LA MÉMOIRE
+    reg_memory['adaptation_cycles'] += 1
+    
+    # Enregistrer la préférence γ → G
+    if gamma_bucket not in reg_memory['preferred_G_by_gamma']:
+        reg_memory['preferred_G_by_gamma'][gamma_bucket] = {}
+    
+    if actual_G_arch not in reg_memory['preferred_G_by_gamma'][gamma_bucket]:
+        reg_memory['preferred_G_by_gamma'][gamma_bucket][actual_G_arch] = 0
+    
+    # Incrémenter le compteur d'utilisation
+    reg_memory['preferred_G_by_gamma'][gamma_bucket][actual_G_arch] += 1
+    
+    return G_value, actual_G_arch, params
 
 
 # ============== SORTIES OBSERVÉE ET ATTENDUE ==============

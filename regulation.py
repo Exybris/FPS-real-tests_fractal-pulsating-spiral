@@ -97,10 +97,55 @@ def compute_G(x: Union[float, np.ndarray], archetype: str = "tanh",
         # Mélange pondéré
         return alpha * tanh_part + (1 - alpha) * spiral_part
     
+    elif archetype == "adaptive_aware":
+        # Mode adaptatif conscient - utilise dynamics.compute_G_adaptive_aware
+        # Pour éviter une dépendance circulaire, on retourne simplement tanh ici
+        # La vraie logique adaptive_aware est dans dynamics.py
+        lambda_val = params.get("lambda", 1.0)
+        return np.tanh(lambda_val * x)
+    
     else:
         # Archétype non reconnu - fallback sur tanh
         warnings.warn(f"Archétype '{archetype}' non reconnu. Utilisation de 'tanh' par défaut.")
         return compute_G(x, "tanh", params)
+
+
+def adapt_params_for_archetype(G_arch: str, gamma: float, error_magnitude: float) -> Dict[str, float]:
+    """
+    Adapte les paramètres selon l'archétype, γ et l'erreur.
+    Utilisé par compute_G_adaptive_aware pour ajuster dynamiquement les paramètres.
+    
+    Args:
+        G_arch: archétype de régulation
+        gamma: valeur actuelle de gamma
+        error_magnitude: magnitude de l'erreur
+        
+    Returns:
+        dict avec paramètres adaptés pour l'archétype
+    """
+    if G_arch == "tanh":
+        return {"lambda": 0.5 + gamma * 0.5}
+    
+    elif G_arch == "resonance":
+        return {
+            "alpha": 1.0 - 0.3 * error_magnitude,
+            "beta": 1.5 * gamma + 0.5
+        }
+    
+    elif G_arch == "spiral_log":
+        return {
+            "alpha": gamma + 0.2 * error_magnitude,
+            "beta": 3.0 - gamma
+        }
+    
+    elif G_arch == "adaptive":
+        return {
+            "lambda": gamma,
+            "alpha": 0.5 + 0.5 * (1 - error_magnitude)
+        }
+    
+    else:
+        return {"lambda": 1.0}
 
 
 # ============== ENVELOPPES ADAPTATIVES ==============

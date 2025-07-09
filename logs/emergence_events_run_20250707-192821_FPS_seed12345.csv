@@ -1,0 +1,5 @@
+event_type,t_start,t_end,metric,value,severity
+anomaly,94,96,S(t),5.586645,medium
+anomaly,45,94,A_mean(t),11.371137,high
+anomaly,46,95,A_mean(t),9.632275,high
+anomaly,67,69,entropy_S,3.084724,low

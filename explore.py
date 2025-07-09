@@ -160,6 +160,7 @@ def run_exploration(run_data_path: str, output_dir: str,
     print(f"  → {len(phase_events)} patterns dans l'espace de phase")
     
     # 5. Détection de motifs fractals (avec seuil diversifié)
+    fractal_events = []  # Initialiser la variable
     if exploration_config.get('detect_fractal_patterns', True):
         print("\n🌿 Détection de motifs fractals...")
         fractal_events = detect_fractal_patterns(

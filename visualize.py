@@ -901,12 +901,27 @@ def export_html_report(all_data: Dict[str, Any], output_path: str) -> None:
     if 'metrics_summary' in all_data:
         for metric, value in all_data['metrics_summary'].items():
             if isinstance(value, (int, float)):
+                # Formater intelligemment selon la valeur
+                if abs(value) < 0.001 and value != 0:
+                    # Notation scientifique pour les très petites valeurs
+                    formatted_value = f"{value:.2e}"
+                elif abs(value) >= 1000000:
+                    # Notation scientifique pour les très grandes valeurs
+                    formatted_value = f"{value:.2e}"
+                elif int(value) == value:
+                    # Entier
+                    formatted_value = f"{int(value)}"
+                else:
+                    # Décimales normales
+                    formatted_value = f"{value:.3f}"
+                    
                 html_content += f"""
                     <div class="metric-box">
-                        <div class="metric-value">{value:.3f}</div>
+                        <div class="metric-value">{formatted_value}</div>
                         <div class="metric-label">{metric}</div>
                     </div>
                 """
+
     
     html_content += """
                 </div>

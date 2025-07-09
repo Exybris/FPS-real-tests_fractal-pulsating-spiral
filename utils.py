@@ -32,6 +32,7 @@ import pandas as pd
 from multiprocessing import Pool, cpu_count
 import warnings
 import traceback
+from pathlib import Path
 
 # Import optionnel pour HDF5
 try:
@@ -731,6 +732,41 @@ def deep_convert(obj):
     else:
         return obj
 
+def deep_convert_for_json(obj):
+    """
+    Convertit récursivement un objet Python pour le rendre sérialisable en JSON.
+    Gère notamment les clés tuples en les convertissant en strings.
+    
+    Args:
+        obj: objet à convertir
+        
+    Returns:
+        objet converti compatible JSON
+    """
+    if isinstance(obj, dict):
+        converted = {}
+        for key, value in obj.items():
+            # Convertir les clés tuples en strings
+            if isinstance(key, tuple):
+                key_str = f"({','.join(str(k) for k in key)})"
+                converted[key_str] = deep_convert_for_json(value)
+            else:
+                converted[str(key)] = deep_convert_for_json(value)
+        return converted
+    elif isinstance(obj, (list, tuple)):
+        return [deep_convert_for_json(item) for item in obj]
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif hasattr(obj, '__dict__'):
+        # Objets custom
+        return deep_convert_for_json(obj.__dict__)
+    else:
+        return obj
+
 # ============== TOPOLOGIES / COUPLAGE ==============
 
 
@@ -867,3 +903,113 @@ if __name__ == "__main__":
         os.remove(archive_path)
     
     print("\n✅ Module utils.py prêt à orchestrer la symphonie FPS")
+
+
+# ============== FONCTIONS ADAPTATIVES ==============
+
+def save_coupled_discoveries(gamma_journal: Dict, regulation_state: Dict, 
+                           output_path: str) -> None:
+    """
+    Sauvegarde les découvertes couplées (γ, G) dans un fichier JSON.
+    Si le fichier est trop gros (>15MB), le divise en plusieurs parties.
+    
+    Args:
+        gamma_journal: journal des découvertes gamma
+        regulation_state: état de la régulation G
+        output_path: chemin de sortie (sera adapté si division nécessaire)
+    """
+    import os
+    import json
+    from pathlib import Path
+    from datetime import datetime
+    
+    # Préparer les données
+    discoveries = {
+        'timestamp': datetime.now().isoformat(),
+        'gamma_discoveries': gamma_journal,
+        'G_discoveries': regulation_state
+    }
+    
+    # Convertir pour JSON (tuples -> strings, etc.)
+    discoveries_serializable = deep_convert_for_json(discoveries)
+    
+    # Convertir en JSON pour vérifier la taille
+    json_str = json.dumps(discoveries_serializable, indent=2, ensure_ascii=False)
+    size_mb = len(json_str.encode('utf-8')) / (1024 * 1024)
+    
+    # Si petit fichier, sauvegarder normalement
+    if size_mb < 15:  # Limite à 15MB pour garder une marge
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(json_str)
+        return
+    
+    # Si gros fichier, créer un dossier et diviser
+    base_path = Path(output_path)
+    folder_name = base_path.stem + "_parts"
+    folder_path = base_path.parent / folder_name
+    folder_path.mkdir(exist_ok=True)
+    
+    # Diviser les découvertes en chunks
+    # Stratégie : diviser par états couplés
+    gamma_states = discoveries_serializable['gamma_discoveries'].get('coupled_states', {})
+    
+    if gamma_states:
+        # Calculer combien d'états par chunk pour rester sous 15MB
+        total_states = len(gamma_states)
+        estimated_states_per_chunk = max(1, int(total_states * 15 / size_mb))
+        
+        # Diviser les états
+        states_items = list(gamma_states.items())
+        chunk_num = 0
+        
+        for i in range(0, total_states, estimated_states_per_chunk):
+            chunk_states = dict(states_items[i:i + estimated_states_per_chunk])
+            
+            # Créer un chunk avec métadonnées
+            chunk_data = {
+                'timestamp': discoveries_serializable['timestamp'],
+                'chunk_info': {
+                    'part': chunk_num + 1,
+                    'total_parts': (total_states + estimated_states_per_chunk - 1) // estimated_states_per_chunk,
+                    'states_in_chunk': len(chunk_states),
+                    'total_states': total_states
+                },
+                'gamma_discoveries': {
+                    **{k: v for k, v in discoveries_serializable['gamma_discoveries'].items() if k != 'coupled_states'},
+                    'coupled_states': chunk_states
+                }
+            }
+            
+            # Ajouter les découvertes G seulement dans le premier chunk
+            if chunk_num == 0:
+                chunk_data['G_discoveries'] = discoveries_serializable['G_discoveries']
+            
+            # Sauvegarder le chunk
+            chunk_path = folder_path / f"part_{chunk_num:03d}.json"
+            with open(chunk_path, 'w', encoding='utf-8') as f:
+                json.dump(chunk_data, f, indent=2, ensure_ascii=False)
+            
+            chunk_num += 1
+        
+        # Créer un fichier index
+        index_data = {
+            'timestamp': discoveries_serializable['timestamp'],
+            'total_parts': chunk_num,
+            'total_states': total_states,
+            'folder': str(folder_path),
+            'original_size_mb': round(size_mb, 2),
+            'parts': [f"part_{i:03d}.json" for i in range(chunk_num)]
+        }
+        
+        index_path = folder_path / "index.json"
+        with open(index_path, 'w', encoding='utf-8') as f:
+            json.dump(index_data, f, indent=2, ensure_ascii=False)
+        
+        print(f"  📂 Découvertes divisées en {chunk_num} parties dans : {folder_path}")
+        print(f"     Taille originale : {size_mb:.1f}MB → ~{15:.1f}MB par partie")
+    
+    else:
+        # Si pas de states à diviser, sauvegarder tel quel avec warning
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(json_str)
+        print(f"  ⚠️  Fichier volumineux ({size_mb:.1f}MB) sauvegardé sans division : {output_path}")

@@ -1,0 +1,11 @@
+{
+  "timestamp": "20250706_230211",
+  "run_id": "run_20250706-230211_FPS_seed12345",
+  "exception_type": "UnboundLocalError",
+  "exception_message": "local variable 'gamma_t' referenced before assignment",
+  "traceback": "Traceback (most recent call last):\n  File \"/Users/agltlm/Desktop/FPS_Project/simulate.py\", line 606, in run_fps_simulation\n    'gamma': gamma_t,  # Ajouter gamma global\nUnboundLocalError: local variable 'gamma_t' referenced before assignment\n",
+  "t_current": 0.0,
+  "n_strates": 5,
+  "mode": "FPS",
+  "last_metrics": {}
+}

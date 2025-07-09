@@ -1,0 +1,2 @@
+Checkpoint créé : 2025-07-07T00:50:52.114616
+Chemin : logs/checkpoints/run_20250707-005052_FPS_seed12348_backup_100.pkl

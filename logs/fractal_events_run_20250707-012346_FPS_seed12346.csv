@@ -1,0 +1,11 @@
+event_type,t_start,t_end,metric,value,severity,scale
+fractal_pattern,100,200,A_mean(t),0.662015,medium,10/100
+fractal_pattern,150,250,A_mean(t),0.669154,medium,10/100
+fractal_pattern,150,250,entropy_S,0.747945,medium,10/100
+fractal_pattern,250,350,entropy_S,0.654086,medium,10/100
+fractal_pattern,250,350,effort(t),0.710344,medium,10/100
+fractal_pattern,100,200,mean_high_effort,0.683217,medium,10/100
+fractal_pattern,200,300,mean_high_effort,0.730115,medium,10/100
+fractal_pattern,300,400,mean_high_effort,0.931789,high,10/100
+fractal_pattern,150,250,d_effort_dt,0.704072,medium,10/100
+fractal_pattern,300,400,d_effort_dt,0.709407,medium,10/100

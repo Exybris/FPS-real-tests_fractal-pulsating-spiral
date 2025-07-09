@@ -1,0 +1,4 @@
+Checkpoint créé : 2025-07-06T23:02:11.246487
+Chemin : crash_recovery/crash_20250706_230211_state.pkl
+Nombre de strates : 5
+Temps actuel : 0.0
