@@ -1,6 +1,0 @@
-event_type,t_start,t_end,metric,value,severity
-phase_cycle,7,16,S(t),9,low
-phase_cycle,40,52,S(t),12,medium
-phase_cycle,53,59,S(t),6,low
-phase_cycle,60,65,S(t),5,low
-phase_cycle,67,73,S(t),6,low

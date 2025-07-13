@@ -1,1 +1,0 @@
-t,S(t),C(t),A_spiral(t),E(t),L(t),cpu_step(t),effort(t),A_mean(t),f_mean(t),variance_d2S,fluidity,entropy_S,mean_abs_error,mean_high_effort,d_effort_dt,t_retour,max_median_ratio,continuous_resilience,adaptive_resilience,effort_status,En_mean(t),On_mean(t),gamma,gamma_mean(t),In_mean(t),An_mean(t),fn_mean(t)

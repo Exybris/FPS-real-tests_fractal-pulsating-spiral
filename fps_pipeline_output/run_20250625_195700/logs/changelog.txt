@@ -1,2 +1,0 @@
-[2025-06-25 19:57:02] | batch_5 | stability: None → None | Dépassement sur 100.0% des runs
-[2025-06-25 19:57:02] | batch_5 | resilience: None → None | Dépassement sur 100.0% des runs

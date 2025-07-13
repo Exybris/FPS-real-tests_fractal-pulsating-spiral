@@ -1,7 +1,7 @@
 {
   "system": {
     "N": 5,
-    "T": 50,
+    "T": 200,
     "dt": 0.1,
     "seed": 12345,
     "mode": "FPS",
@@ -179,16 +179,16 @@
     "phi": 1.618,
     "epsilon": 0.1,
     "omega": 0.5,
-    "theta": 0.0
+    "theta": 0.7
   },
   "regulation": {
     "feedback_mode": "archetype",
     "G_arch": "adaptive_aware",
-    "lambda": 1.0,
+    "lambda": 1.7,
     "alpha": 0.6,
     "beta": 0.6,
     "dynamic_G": true,
-    "lambda_E": 0.05,
+    "lambda_E": 0.10,
     "k_spacing": 0.0,
     "epsilon_E": 0.01
   },
@@ -196,7 +196,7 @@
     "gamma_mode": "adaptive_aware",
     "gamma_static_value": 1.0,
     "gamma_dynamic": {
-      "k": 2.0,
+      "k": 1.0,
       "t0": 25
     },
     "strata_delay": false
@@ -207,7 +207,7 @@
     "mu_n": 0.0,
     "sigma_n_static": 0.2,
     "sigma_n_dynamic": {
-      "amp": 0.15,
+      "amp": 0.10,
       "freq": 0.3,
       "offset": 0.1,
       "T": 50

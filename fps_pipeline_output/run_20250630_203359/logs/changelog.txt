@@ -1,1 +1,0 @@
-[2025-06-30 20:34:17] | batch_5 | effort_transient: None → None | Dépassement sur 100.0% des runs
