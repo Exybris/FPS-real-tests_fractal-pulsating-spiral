@@ -347,7 +347,7 @@ python3 main.py run --config config.json --mode FPS  # Run 2
 ### Ressources
 
 - **Repository** : [FPS Tests](https://github.com/Exybris/FPS-real-tests_fractal-pulsating-spiral)
-- **Documentation théorique** : `FPS_Paper.docx`
+- **Documentation théorique** : `docs/FPS_Paper.docx`
 - **Logs de développement** : `docs/CHANGELOG.md`
 
 ---
