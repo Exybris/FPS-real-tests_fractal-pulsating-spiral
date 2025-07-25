@@ -1,0 +1,27 @@
+# Environnement virtuel
+venv/
+.env/
+env/
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+
+# Fichiers temporaires et de cache
+*.log
+*.tmp
+*.swp
+.cache/
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Données volumineuses
+*.db
+*.sqlite
+
+# Autres fichiers de configuration locaux
+*.env
