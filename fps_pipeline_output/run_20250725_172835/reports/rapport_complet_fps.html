@@ -1,0 +1,542 @@
+
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Rapport FPS - Analyse complète</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Arial, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background-color: #f5f5f5;
+            }
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                background-color: white;
+                padding: 30px;
+                border-radius: 10px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            h1 {
+                color: #2E86AB;
+                border-bottom: 3px solid #2E86AB;
+                padding-bottom: 10px;
+            }
+            h2 {
+                color: #6A4C93;
+                margin-top: 30px;
+            }
+            .metric-box {
+                display: inline-block;
+                margin: 10px;
+                padding: 15px;
+                background-color: #f8f9fa;
+                border-radius: 5px;
+                border-left: 4px solid #2E86AB;
+            }
+            .metric-value {
+                font-size: 24px;
+                font-weight: bold;
+                color: #2E86AB;
+            }
+            .metric-label {
+                font-size: 14px;
+                color: #666;
+            }
+            .section {
+                margin: 30px 0;
+            }
+            .grid-container {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 20px;
+                margin: 20px 0;
+            }
+            .config-box {
+                background-color: #f0f0f0;
+                padding: 15px;
+                border-radius: 5px;
+                font-family: monospace;
+                font-size: 12px;
+                overflow-x: auto;
+            }
+            .footer {
+                margin-top: 50px;
+                padding-top: 20px;
+                border-top: 1px solid #ddd;
+                text-align: center;
+                color: #666;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🌀 Rapport d'analyse FPS</h1>
+            
+            <div class="section">
+                <h2>📊 Métriques principales</h2>
+                <div class="grid-container">
+    
+                    <div class="metric-box">
+                        <div class="metric-value">-0.119</div>
+                        <div class="metric-label">mean_S</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">0.070</div>
+                        <div class="metric-label">std_S</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">0.419</div>
+                        <div class="metric-label">mean_effort</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">51.730</div>
+                        <div class="metric-label">max_effort</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">1.58e-04</div>
+                        <div class="metric-label">mean_cpu_step</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">0.875</div>
+                        <div class="metric-label">final_entropy_S</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">0.710</div>
+                        <div class="metric-label">entropy_S</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">7.973</div>
+                        <div class="metric-label">final_variance_d2S</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">0.992</div>
+                        <div class="metric-label">final_fluidity</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">0.007</div>
+                        <div class="metric-label">final_mean_abs_error</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">0.996</div>
+                        <div class="metric-label">mean_C</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">5.200</div>
+                        <div class="metric-label">resilience_t_retour</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">0.846</div>
+                        <div class="metric-label">continuous_resilience</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">0.848</div>
+                        <div class="metric-label">continuous_resilience_mean</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">0.848</div>
+                        <div class="metric-label">adaptive_resilience</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">4</div>
+                        <div class="metric-label">adaptive_resilience_score</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">3.544</div>
+                        <div class="metric-label">stability_ratio</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">1000</div>
+                        <div class="metric-label">total_steps</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">1000</div>
+                        <div class="metric-label">recorded_steps</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">0.100</div>
+                        <div class="metric-label">dt</div>
+                    </div>
+                
+                    <div class="metric-box">
+                        <div class="metric-value">5</div>
+                        <div class="metric-label">N</div>
+                    </div>
+                
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>🔍 Détection d'émergences</h2>
+    <ul><li><strong>anomaly</strong> : 317 événements</li><li><strong>harmonic_emergence</strong> : 72 événements</li><li><strong>fractal_pattern</strong> : 50 événements</li><li><strong>phase_cycle</strong> : 232 événements</li></ul>
+            </div>
+            
+            <div class="section">
+                <h2>⚙️ Configuration utilisée</h2>
+                <div class="config-box">
+    <pre>{
+  "system": {
+    "N": 5,
+    "T": 100,
+    "dt": 0.1,
+    "seed": 12345,
+    "mode": "FPS",
+    "signal_mode": "extended",
+    "logging": {
+      "level": "INFO",
+      "output": "csv",
+      "log_metrics": [
+        "t",
+        "S(t)",
+        "C(t)",
+        "A_spiral(t)",
+        "E(t)",
+        "L(t)",
+        "cpu_step(t)",
+        "effort(t)",
+        "A_mean(t)",
+        "f_mean(t)",
+        "variance_d2S",
+        "fluidity",
+        "entropy_S",
+        "mean_abs_error",
+        "mean_high_effort",
+        "d_effort_dt",
+        "t_retour",
+        "max_median_ratio",
+        "continuous_resilience",
+        "adaptive_resilience",
+        "effort_status",
+        "En_mean(t)",
+        "On_mean(t)",
+        "gamma",
+        "gamma_mean(t)",
+        "In_mean(t)",
+        "An_mean(t)",
+        "fn_mean(t)"
+      ]
+    },
+    "input": {
+      "baseline": {
+        "offset_mode": "static",
+        "offset": 0.1,
+        "offset_adaptive": {
+          "target_sigma": 0.5,
+          "k_A": 0.01,
+          "min": 0.05,
+          "max": 0.5,
+          "window": 20,
+          "initial": 0.1
+        },
+        "gain_mode": "static",
+        "gain": 1.0,
+        "gain_adaptive": {
+          "target_range": 2.0,
+          "k_G": 0.05,
+          "min": 0.1,
+          "max": 2.0,
+          "window": 10,
+          "initial": 1.0
+        }
+      },
+      "scale": 1.2,
+      "perturbations": [
+        {
+          "type": "sinus",
+          "amplitude": 0.4,
+          "t0": 0.0,
+          "freq": 0.1,
+          "weight": 1.0
+        }
+      ]
+    }
+  },
+  "adaptive_windows": {
+    "exploration": {
+      "target_percent": 0.1,
+      "min_absolute": 30,
+      "max_percent": 0.25
+    },
+    "gamma_adaptation": {
+      "target_percent": 0.1,
+      "min_absolute": 50,
+      "max_percent": 0.2
+    },
+    "G_effectiveness": {
+      "target_percent": 0.06,
+      "min_absolute": 30,
+      "max_percent": 0.15
+    },
+    "scoring": {
+      "immediate": {
+        "target_percent": 0.02,
+        "min_absolute": 10
+      },
+      "recent": {
+        "target_percent": 0.1,
+        "min_absolute": 30
+      },
+      "medium": {
+        "target_percent": 0.4,
+        "min_absolute": 100
+      }
+    },
+    "transition_smoothing": {
+      "target_percent": 0.02,
+      "min_absolute": 10
+    },
+    "pattern_detection": {
+      "target_percent": 0.15,
+      "min_absolute": 50
+    }
+  },
+  "coupling": {
+    "type": "spiral",
+    "c": 0.1,
+    "closed": false,
+    "mirror": true
+  },
+  "strates": [
+    {
+      "id": 0,
+      "A0": 0.268941,
+      "f0": 0.7,
+      "phi": 0.0,
+      "alpha": 0.65,
+      "beta": 0.264,
+      "k": 2.0,
+      "x0": 0.5,
+      "w": [
+        0.0,
+        0.8,
+        0.3,
+        -0.5,
+        -0.6
+      ]
+    },
+    {
+      "id": 1,
+      "A0": 0.5,
+      "f0": 1.3,
+      "phi": 0.0,
+      "alpha": 0.78,
+      "beta": 0.384,
+      "k": 2.5,
+      "x0": 0.4,
+      "w": [
+        0.8,
+        0.0,
+        0.7,
+        -0.6,
+        -0.9
+      ]
+    },
+    {
+      "id": 2,
+      "A0": 0.7,
+      "f0": 0.4,
+      "phi": 0.0,
+      "alpha": 0.78,
+      "beta": 0.42,
+      "k": 1.8,
+      "x0": 0.6,
+      "w": [
+        0.3,
+        0.7,
+        0.0,
+        0.8,
+        -1.8
+      ]
+    },
+    {
+      "id": 3,
+      "A0": 0.4,
+      "f0": 1.8,
+      "phi": 0.0,
+      "alpha": 0.9099999999999999,
+      "beta": 0.288,
+      "k": 2.2,
+      "x0": 0.45,
+      "w": [
+        -0.5,
+        -0.6,
+        0.8,
+        0.0,
+        0.3
+      ]
+    },
+    {
+      "id": 4,
+      "A0": 0.6,
+      "f0": 2.4,
+      "phi": 0.0,
+      "alpha": 0.5850000000000001,
+      "beta": 0.45599999999999996,
+      "k": 1.9,
+      "x0": 0.55,
+      "w": [
+        -0.6,
+        -0.9,
+        1.5,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "dynamic_parameters": {
+    "dynamic_phi": true,
+    "dynamic_beta": true,
+    "dynamic_alpha": false,
+    "dynamic_gamma": true,
+    "dynamic_G": true
+  },
+  "spiral": {
+    "phi": 1.618,
+    "epsilon": 0.1,
+    "omega": 0.05,
+    "theta": 0.0,
+    "signature_mode": "individual"
+  },
+  "regulation": {
+    "feedback_mode": "archetype",
+    "G_arch": "adaptive_aware",
+    "lambda": 1.7,
+    "alpha": 0.6,
+    "beta": 0.6,
+    "dynamic_G": true,
+    "lambda_E": 0.1,
+    "k_spacing": 0.0,
+    "epsilon_E": 0.01
+  },
+  "latence": {
+    "gamma_mode": "adaptive_aware",
+    "gamma_static_value": 1.0,
+    "gamma_dynamic": {
+      "k": 1.0,
+      "t0": 25
+    },
+    "strata_delay": false
+  },
+  "enveloppe": {
+    "env_type": "gaussienne",
+    "env_mode": "dynamic",
+    "mu_n": 0.0,
+    "sigma_n_static": 0.2,
+    "sigma_n_dynamic": {
+      "amp": 0.1,
+      "freq": 0.3,
+      "offset": 0.1,
+      "T": 50
+    }
+  },
+  "temporal_regulation": {
+    "use_temporal": true,
+    "eta_mode": "adaptive",
+    "eta_value": 1.0,
+    "theta_mode": "resonant",
+    "theta_value": 1.0
+  },
+  "exploration": {
+    "metrics": [
+      "S(t)",
+      "C(t)",
+      "A_mean(t)",
+      "f_mean(t)",
+      "entropy_S",
+      "effort(t)",
+      "mean_high_effort",
+      "d_effort_dt",
+      "mean_abs_error"
+    ],
+    "window_sizes": [
+      1,
+      10,
+      100
+    ],
+    "fractal_threshold": 0.8,
+    "detect_fractal_patterns": true,
+    "detect_anomalies": true,
+    "detect_harmonics": true,
+    "recurrence_window": [
+      1,
+      10,
+      100
+    ],
+    "anomaly_threshold": 3.0,
+    "min_duration": 3
+  },
+  "to_calibrate": {
+    "variance_d2S": 0.01,
+    "fluidity_threshold": 0.3,
+    "stability_ratio": 10,
+    "resilience": 2,
+    "entropy_S": 0.5,
+    "mean_high_effort": 2,
+    "d_effort_dt": 5,
+    "t_retour": 1,
+    "effort_transitoire_threshold": 2.0,
+    "effort_chronique_threshold": 1.5,
+    "gamma_n": 1.0,
+    "env_n": "gaussienne",
+    "sigma_n": 0.1,
+    "cpu_step_ctrl": 2,
+    "max_chaos_events": 5
+  },
+  "validation": {
+    "criteria": [
+      "fluidity",
+      "stability",
+      "resilience",
+      "innovation",
+      "regulation",
+      "cpu_cost",
+      "effort_internal",
+      "effort_transient"
+    ],
+    "alert_sigma": 3,
+    "batch_size": 5,
+    "refine_after_runs": true,
+    "auto_log_refinement": true
+  },
+  "debug": {
+    "log_detailed": true
+  },
+  "analysis": {
+    "compare_kuramoto": true,
+    "save_indiv_files": true,
+    "export_html_report": true,
+    "visualize_grid": true
+  }
+}</pre>
+                </div>
+            </div>
+            
+            <div class="footer">
+                <p>Généré le 2025-07-25 17:28:51</p>
+                <p>FPS - Fractal Pulsating Spiral | © 2025 Gepetto & Andréa Gadal</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    

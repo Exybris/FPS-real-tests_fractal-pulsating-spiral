@@ -1,0 +1,79 @@
+{
+  "metadata": {
+    "timestamp": "2025-07-25T17:32:14.109425",
+    "fps_run_id": "run_20250725-173212_FPS_seed12345",
+    "kuramoto_run_id": "run_20250725-173213_KURAMOTO_seed12345",
+    "neutral_run_id": "run_20250725-173213_NEUTRAL_seed12345"
+  },
+  "detailed_metrics": {
+    "synchronization": {
+      "fps_value": 0.9968741075741144,
+      "kuramoto_value": 0.7762382860014279,
+      "neutral_value": 0,
+      "fps_vs_kuramoto_efficiency": 28.423723168926117,
+      "fps_vs_neutral_efficiency": 996874107574.1144
+    },
+    "stability": {
+      "fps_value": 14.666075930578192,
+      "kuramoto_value": 0.30692830766026824,
+      "neutral_value": 0.6320557848559905,
+      "fps_vs_kuramoto_efficiency": 4663.146344687515,
+      "fps_vs_neutral_efficiency": 2216.8694262725526
+    },
+    "resilience": {
+      "fps_value": 0.8480986006022628,
+      "kuramoto_value": 1.0,
+      "neutral_value": 0.1,
+      "fps_vs_kuramoto_efficiency": -15.1901399382547,
+      "fps_vs_neutral_efficiency": 748.0985998541643
+    },
+    "continuous_resilience": {
+      "fps_value": 0.8476415744892865,
+      "kuramoto_value": 0.5,
+      "neutral_value": 0.3,
+      "fps_vs_kuramoto_efficiency": 69.52831488395162,
+      "fps_vs_neutral_efficiency": 182.54719143557975
+    },
+    "innovation": {
+      "fps_value": 0.7634160913009752,
+      "kuramoto_value": 0.14243194390317127,
+      "neutral_value": 0.5,
+      "fps_vs_kuramoto_efficiency": 435.9865701081617,
+      "fps_vs_neutral_efficiency": 52.683218249658395
+    },
+    "fluidity": {
+      "fps_value": 0.9913171484702908,
+      "kuramoto_value": 0.9927299811645179,
+      "neutral_value": 0.5,
+      "fps_vs_kuramoto_efficiency": -0.14231792339216548,
+      "fps_vs_neutral_efficiency": 98.26342967440547
+    },
+    "cpu_efficiency": {
+      "fps_value": 6791.272961066383,
+      "kuramoto_value": 230860.6373748836,
+      "neutral_value": 1000000.0,
+      "fps_vs_kuramoto_efficiency": -97.05827983112549,
+      "fps_vs_neutral_efficiency": -99.32087260457249
+    },
+    "global_score": {
+      "fps": 0.8326219014957937,
+      "kuramoto": 0.48135374085151594,
+      "neutral": 0.22835017191119994,
+      "fps_vs_kuramoto_efficiency": 72.97505571472416,
+      "fps_vs_neutral_efficiency": 264.62503805556844
+    }
+  },
+  "summary": {
+    "fps_advantages": [
+      "synchronization: +28.4% vs Kuramoto",
+      "stability: +4663.1% vs Kuramoto",
+      "continuous_resilience: +69.5% vs Kuramoto",
+      "innovation: +436.0% vs Kuramoto"
+    ],
+    "fps_disadvantages": [
+      "resilience: -15.2% vs Kuramoto",
+      "cpu_efficiency: -97.1% vs Kuramoto"
+    ],
+    "overall_verdict": "FPS surpasse les deux mod\u00e8les de contr\u00f4le (Kuramoto: +73.0%, Neutral: +264.6%)"
+  }
+}

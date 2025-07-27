@@ -1,0 +1,12 @@
+{
+  "run_id": "run_20250725-173218_FPS_seed12349",
+  "timestamp": "2025-07-25T17:32:18.293373",
+  "fps_version": "1.3",
+  "config_path": "logs/config_run_20250725-173218_FPS_seed12349.json",
+  "system": {
+    "N": 5,
+    "T": 50,
+    "mode": "FPS",
+    "seed": 12349
+  }
+}
