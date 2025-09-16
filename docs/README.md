@@ -1,4 +1,4 @@
-# FPS - Fractal Pulsating Spiral Pipeline v3.9
+# FPS - Fractal Pulsating Spiral Pipeline v3
 
 ## 🌀 Vue d'ensemble
 
