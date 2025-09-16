@@ -81,10 +81,11 @@ def compute_effort(delta_An_array: np.ndarray, delta_fn_array: np.ndarray,
     """
     effort = 0.0
     
-    # Protection contre division par zéro avec floor minimum
+    # Protection contre division par zéro avec epsilon adaptatif
     # Pour éviter overflow quand les valeurs de référence sont très petites
-    # Utilisation d'un epsilon adaptatif basé sur l'échelle des variations
-    epsilon = 0.01
+    # Epsilon s'adapte à l'échelle des valeurs de référence
+    ref_scale = max(abs(An_ref), abs(fn_ref), abs(gamma_ref))
+    epsilon = max(0.001, 0.01 * ref_scale)
     
     # Calcul de l'effort comme changement relatif
     # Si la référence est trop petite, on utilise epsilon
@@ -280,8 +281,16 @@ def compute_variance_d2S(S_history: List[float], dt: float) -> float:
     # Seconde dérivée
     d2S_dt2 = np.gradient(dS_dt, dt)
     
-    # Variance
-    return np.var(d2S_dt2)
+    # Variance robuste via IQR (protection contre outliers)
+    try:
+        q75, q25 = np.percentile(d2S_dt2, [75, 25])
+        iqr = q75 - q25
+        # Conversion IQR -> σ pour distribution normale (facteur 0.7413)
+        robust_variance = (iqr * 0.7413) ** 2
+        return robust_variance
+    except:
+        # Fallback si problème de calcul
+        return np.var(d2S_dt2)
 
 
 def compute_fluidity(variance_d2S: float, reference_variance: float = 175.0) -> float:
@@ -322,18 +331,30 @@ def compute_entropy_S(S_t: Union[float, List[float], np.ndarray],
     Returns:
         float: entropie spectrale entre 0 et 1
     """
-    # Si on n'a qu'une valeur scalaire, on utilise une approximation basée sur la magnitude
+    # Buffer persistant pour accumuler les valeurs scalaires
+    if not hasattr(compute_entropy_S, '_buffer'):
+        compute_entropy_S._buffer = []
+    
+    # Si on n'a qu'une valeur scalaire, l'ajouter au buffer
     if np.isscalar(S_t):
-        # Approximation : mapper la magnitude dans [0,1] pour l'entropie
-        # Plus la valeur est proche de 0, moins il y a d'information
-        magnitude = abs(S_t)
-        if magnitude < 0.1:
-            return 0.1  # Très peu d'information
-        elif magnitude > 10:
-            return 0.9  # Beaucoup d'information
+        compute_entropy_S._buffer.append(float(S_t))
+        # Garder seulement les 5 dernières valeurs
+        if len(compute_entropy_S._buffer) > 5:
+            compute_entropy_S._buffer.pop(0)
+        
+        # Si on a au moins 3 valeurs dans le buffer, les utiliser
+        if len(compute_entropy_S._buffer) >= 3:
+            S_t = compute_entropy_S._buffer
         else:
-            # Fonction sigmoïde pour mapper [0.1, 10] -> [0.1, 0.9]
-            return 0.1 + 0.8 / (1 + np.exp(-0.5 * (magnitude - 5)))
+            # Sinon, approximation basée sur la magnitude
+            magnitude = abs(S_t)
+            if magnitude < 0.1:
+                return 0.1  # Très peu d'information
+            elif magnitude > 10:
+                return 0.9  # Beaucoup d'information
+            else:
+                # Fonction sigmoïde pour mapper [0.1, 10] -> [0.1, 0.9]
+                return 0.1 + 0.8 / (1 + np.exp(-0.5 * (magnitude - 5)))
     
     # Si on a moins de 10 points, calculer une entropie approximative
     if len(S_t) < 10:
@@ -348,7 +369,11 @@ def compute_entropy_S(S_t: Union[float, List[float], np.ndarray],
         freqs, psd = signal.periodogram(S_t, sampling_rate)
         
         # Normalisation pour obtenir une distribution de probabilité
-        psd_norm = psd / np.sum(psd)
+        psd_sum = np.sum(psd)
+        if psd_sum == 0 or np.isnan(psd_sum):
+            # Signal constant ou problème : entropie faible
+            return 0.1
+        psd_norm = psd / psd_sum
         
         # Éviter log(0)
         psd_norm = psd_norm + 1e-15
@@ -950,7 +975,7 @@ def compute_adaptive_window(total_steps: int, target_percentage: float,
         target_percentage: pourcentage cible (ex: 0.1 pour 10%)
         min_absolute: minimum de pas requis (défaut: 20)
         max_percentage: pourcentage maximum (défaut: 50%)
-    
+        
     Returns:
         int: taille de fenêtre optimale
     """
@@ -1194,3 +1219,191 @@ def calculate_all_scores(recent_history: List[Dict], config: Optional[Dict] = No
 
 
 # ============== EXPORT DES MÉTRIQUES ==============
+
+# ============== MÉTRIQUES DE COHÉRENCE TEMPORELLE ==============
+
+def compute_temporal_coherence(S_history: List[float], dt: float, 
+                              tau_target: float = 1.0) -> float:
+    """
+    Mesure la cohérence temporelle du système - sa capacité à maintenir
+    une "mémoire" douce sans être ni trop rigide ni chaotique.
+    
+    Calcule le temps de décorrélation et compare à une cible optimale.
+    Un système idéal garde une mémoire modérée (ni oubli immédiat ni rigidité).
+    
+    Args:
+        S_history: historique du signal global S(t)
+        dt: pas de temps
+        tau_target: temps de décorrélation cible (défaut: 1.0 seconde)
+    
+    Returns:
+        float: score de cohérence temporelle entre 0 et 1
+        
+    Note:
+        - Score proche de 1 = mémoire optimale
+        - Score proche de 0 = trop chaotique ou trop rigide
+    """
+    if len(S_history) < 20:
+        return 0.5  # Pas assez de données, score neutre
+    
+    try:
+        # Conversion et centrage pour robustesse
+        S_array = np.array(S_history) - np.mean(S_history)
+        
+        # Protection contre variance nulle (signal constant)
+        if np.std(S_array) < 1e-10:
+            return 0.8  # Signal stable = bonne cohérence temporelle
+        
+        # Autocorrélation normalisée (méthode robuste)
+        autocorr = np.correlate(S_array, S_array, mode='full')
+        autocorr = autocorr[len(autocorr)//2:]  # Garder seulement lag positifs
+        
+        # Normalisation avec protection division par zéro
+        if autocorr[0] > 1e-10:
+            autocorr = autocorr / autocorr[0]
+        else:
+            return 0.5  # Problème de normalisation, score neutre
+        
+        # Temps de décorrélation - méthode intégrée plus robuste
+        # Calcule la surface sous la courbe d'autocorrélation (plus stable)
+        # Cette méthode évite les problèmes de premier croisement dans les signaux complexes
+        
+        # Méthode 1: Intégrale de l'autocorrélation positive
+        positive_autocorr = np.maximum(autocorr, 0)  # Garder seulement les valeurs positives
+        tau_integrated = np.sum(positive_autocorr) * dt
+        
+        # Méthode 2: Ajustement exponentiel robuste sur les premiers points
+        try:
+            # Prendre les 20 premiers points pour un fit exponentiel
+            n_fit = min(20, len(autocorr))
+            x_fit = np.arange(n_fit) * dt
+            y_fit = autocorr[:n_fit]
+            
+            # Fit robuste : log(max(y, 0.01)) pour éviter log(0)
+            y_log = np.log(np.maximum(y_fit, 0.01))
+            
+            # Régression linéaire simple
+            if len(x_fit) > 2:
+                slope = (y_log[-1] - y_log[0]) / (x_fit[-1] - x_fit[0])
+                tau_exponential = -1.0 / slope if slope < -0.01 else tau_target
+            else:
+                tau_exponential = tau_target
+        except:
+            tau_exponential = tau_target
+        
+        # Choisir la méthode la plus conservative (temps le plus long)
+        tau_decorr = max(tau_integrated, tau_exponential)
+        
+        # Limitation raisonnable
+        tau_decorr = min(tau_decorr, 10.0 * tau_target)
+        
+        # Score basé sur la proximité à tau_target
+        # Utilise une gaussienne centrée pour pénaliser les écarts
+        deviation = abs(tau_decorr - tau_target) / max(tau_target, 0.1)
+        score = np.exp(-0.5 * deviation**2)  # Gaussienne plus douce que l'exponentielle
+        
+        # Clamp final pour sécurité
+        return float(np.clip(score, 0.0, 1.0))
+        
+    except Exception:
+        # Fallback robuste en cas de problème imprévu
+        return 0.5
+
+
+def compute_autocorr_tau(S_history: List[float], dt: float, 
+                        method: str = 'one_over_e') -> float:
+    """
+    Calcule le temps de décorrélation (tau) d'un signal.
+    
+    Alias plus explicite pour la cohérence temporelle, retournant
+    directement la valeur tau en secondes.
+    
+    Args:
+        S_history: historique du signal
+        dt: pas de temps
+        method: méthode de calcul ('one_over_e', 'first_zero', 'integrated')
+    
+    Returns:
+        float: temps de décorrélation en secondes
+    """
+    if len(S_history) < 10:
+        return dt  # Minimum possible
+    
+    try:
+        S_array = np.array(S_history) - np.mean(S_history)
+        
+        if np.std(S_array) < 1e-10:
+            return 10.0 * dt  # Signal constant = longue corrélation
+        
+        # Autocorrélation
+        autocorr = np.correlate(S_array, S_array, mode='full')
+        autocorr = autocorr[len(autocorr)//2:]
+        
+        if autocorr[0] > 1e-10:
+            autocorr = autocorr / autocorr[0]
+        else:
+            return dt
+        
+        # Différentes méthodes selon le choix
+        if method == 'one_over_e':
+            threshold = 1.0 / np.e
+        elif method == 'first_zero':
+            threshold = 0.0
+        elif method == 'integrated':
+            # Temps intégré = intégrale de l'autocorrélation
+            return float(np.sum(autocorr) * dt)
+        else:
+            threshold = 1.0 / np.e  # Défaut
+        
+        # Chercher le premier croisement
+        for i in range(1, min(len(autocorr), 100)):
+            if autocorr[i] < threshold:
+                return float(i * dt)
+        
+        # Si pas trouvé, corrélation très longue
+        return float(min(len(autocorr), 100) * dt)
+        
+    except Exception:
+        return dt
+
+
+# Alias pour compatibilité
+def compute_decorrelation_time(S_history: List[float], dt: float) -> float:
+    """Alias pour compute_autocorr_tau avec méthode par défaut."""
+    return compute_autocorr_tau(S_history, dt, method='one_over_e')
+
+
+# Fonction utilitaire pour calculer plusieurs tau en une fois
+def compute_multiple_tau(signals_dict: Dict[str, List[float]], dt: float) -> Dict[str, float]:
+    """
+    Calcule les temps de décorrélation pour plusieurs signaux simultanément.
+    
+    Utile pour observer les différentes échelles temporelles du système
+    (surface vs structure profonde).
+    
+    Args:
+        signals_dict: dictionnaire {nom_signal: historique_valeurs}
+        dt: pas de temps
+    
+    Returns:
+        dict: {nom_signal: tau_en_secondes}
+        
+    Exemple:
+        signals = {'S': S_history, 'gamma': gamma_history}
+        taus = compute_multiple_tau(signals, 0.1)
+        # → {'S': 0.1, 'gamma': 2.4}
+    """
+    result = {}
+    
+    for signal_name, signal_history in signals_dict.items():
+        if len(signal_history) >= 20:  # Minimum pour autocorrélation
+            try:
+                tau = compute_autocorr_tau(signal_history, dt)
+                result[f'tau_{signal_name}'] = tau
+            except Exception:
+                result[f'tau_{signal_name}'] = dt  # Fallback
+        else:
+            result[f'tau_{signal_name}'] = dt  # Pas assez de données
+    
+    return result
+

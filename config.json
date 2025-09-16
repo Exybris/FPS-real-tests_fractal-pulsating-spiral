@@ -1,11 +1,12 @@
 {
   "system": {
     "N": 5,
-    "T": 50,
+    "T": 1000,
     "dt": 0.1,
     "seed": 12345,
     "mode": "FPS",
     "signal_mode": "extended",
+    "max_history_size": 50000,
     "logging": {
       "level": "INFO",
       "output": "csv",
@@ -35,9 +36,12 @@
         "On_mean(t)",
         "gamma",
         "gamma_mean(t)",
+        "G_arch_used",
         "In_mean(t)",
         "An_mean(t)",
-        "fn_mean(t)"
+        "fn_mean(t)",
+        "spacing_gamma_bias",
+        "spacing_G_hint"
       ]
     },
     "input": {
@@ -260,6 +264,15 @@
     "theta_mode": "resonant",
     "theta_value": 1.0
   },
+  "modulation": {
+    "enabled": true,
+    "k_error": 0.1,
+    "k_amplitude": 0.1,
+    "k_frequency": 0.05,
+    "gamma_min": 0.5,
+    "gamma_max": 1.5,
+    "verbose": true
+  },
   "exploration": {
     "metrics": [
       "S(t)",
@@ -287,7 +300,14 @@
       100
     ],
     "anomaly_threshold": 3.0,
-    "min_duration": 3
+    "min_duration": 3,
+    "spacing_effect": {
+      "enabled": true,
+      "start_interval": 2.0,
+      "growth": 1.5,
+      "num_blocks": 0,
+      "order": ["gamma", "G", "gamma", "G"]
+    }
   },
   "to_calibrate": {
     "variance_d2S": 0.01,
@@ -323,7 +343,8 @@
     "auto_log_refinement": true
   },
   "debug": {
-    "log_detailed": true
+    "log_detailed": true,
+    "log_interval": 10
   },
   "analysis": {
     "compare_kuramoto": true,

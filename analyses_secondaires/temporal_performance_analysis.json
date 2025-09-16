@@ -1,0 +1,20 @@
+{
+  "csv_analyzed": "logs/run_20250815-005315_FPS_seed12349.csv",
+  "performance_stats": {
+    "mean": 0.7473113825508089,
+    "std": 0.038310108110339185,
+    "min": 0.6353267646752242,
+    "max": 0.9329226713054521
+  },
+  "correlations": {
+    "tau_stability": 0.5142369008695048,
+    "ratio_gamma_S": -0.4560379454754026,
+    "ratio_structure_surface": -0.4545046840467975,
+    "coherence": 0.4357281631100957,
+    "tau_harmonic_mean": -0.3589910218397587,
+    "ratio_f_A": -0.12641055397017534
+  },
+  "cluster_signatures": [
+    {
+      "cluster_id": 2,
+      "size": 

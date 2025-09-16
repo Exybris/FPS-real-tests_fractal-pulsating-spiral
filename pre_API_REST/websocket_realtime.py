@@ -1,1 +1,0 @@
-Pour dialoque temps réel

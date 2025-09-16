@@ -880,9 +880,9 @@ def create_html_report(results: Dict[str, str], output_dir: str, run_id: str) ->
 
 if __name__ == "__main__":
     # Test avec le dernier run
-    debug_file = "logs/debug_detailed_run_20250721-182739_FPS_seed12345.csv"
+    debug_file = "logs/debug_detailed_run_20250725-172835_FPS_seed12345.csv"
     output_dir = "visualizations_individual"
-    run_id = "run_20250721-182739_FPS_seed12345"
+    run_id = "run_20250725-172835_FPS_seed12345"
     
     if os.path.exists(debug_file):
         results = visualize_all_individual_dynamics(debug_file, output_dir, run_id)

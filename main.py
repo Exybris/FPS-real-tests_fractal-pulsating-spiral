@@ -879,6 +879,11 @@ def run_complete_pipeline(config_path: str, parallel: bool = False) -> bool:
         if analysis_result and analysis_result.get('refinements'):
             print(f"🔧 {len(analysis_result['refinements'])} raffinements appliqués")
         
+        # Afficher les métriques finales FPS pour cohérence avec simulate.py
+        fps_result = valid_results.get('fps')
+        if fps_result and 'metrics' in fps_result:
+            print(f"📊 Métriques finales FPS : {fps_result['metrics']}")
+        
         print("\n🌀 La danse FPS s'achève en harmonie ! 🌀")
         return True
         

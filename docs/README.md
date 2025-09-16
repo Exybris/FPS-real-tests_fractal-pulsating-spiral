@@ -1,4 +1,4 @@
-# FPS - Fractal Pulsating Spiral Pipeline v1.4 - Pré-Phase 3
+# FPS - Fractal Pulsating Spiral Pipeline v3.9
 
 ## 🌀 Vue d'ensemble
 
@@ -64,10 +64,25 @@ python3 aggregate_all.py --metrics "S(t),A_mean(t),effort(t)"
 
 ## Outils optionnels
 
-### visualisations des dynamiques individuelles à chaque strate
+### visualisations des dynamiques individuelles à chaque strate (remplacer dans le script par nom des logs que l'on veut observer)
 
 ```bash
 python3 visualize_individual.py
+```
+### Visualisation du spacing effect dans les pics d'exploration des combinaisons gamma et G
+
+```bash
+python3 analyze_spacing.py --csv logs/run_YYYYMMDD-HHMMSS_FPS_seed*.csv --cfg logs/config_run_YYYYMMDD-HHMMSS_FPS_seed*.json --out spacing_report
+```
+### Visualisation des corrélations tau - performances pour raffinement éventuel du mode transcendant_synergy
+
+```bash
+python3 analyze_temporal_correlations.py
+```
+### Apprentissage des états du systèmre : Il découvre ses propres états, apprend à les interpréter, et mémorise pour l'avenir
+
+```bash
+python3 sentiments.py --log run_*.csv --auto_K --memory_path sentiments_memory.json
 ```
 
 **Résultats attendus :**

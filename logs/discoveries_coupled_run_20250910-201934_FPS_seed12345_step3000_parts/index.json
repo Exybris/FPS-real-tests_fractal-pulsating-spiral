@@ -1,0 +1,11 @@
+{
+  "timestamp": "2025-09-10T20:20:10.022945",
+  "total_parts": 2,
+  "total_states": 28,
+  "folder": "logs/discoveries_coupled_run_20250910-201934_FPS_seed12345_step3000_parts",
+  "original_size_mb": 17.28,
+  "parts": [
+    "part_000.json",
+    "part_001.json"
+  ]
+}

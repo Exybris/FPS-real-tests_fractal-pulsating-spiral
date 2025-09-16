@@ -1,0 +1,2 @@
+[2025-09-10 21:33:08] | batch_5 | resilience: None → None | Dépassement sur 60.0% des runs
+[2025-09-10 21:33:08] | batch_5 | effort_transient: None → None | Dépassement sur 80.0% des runs

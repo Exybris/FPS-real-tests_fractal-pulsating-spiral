@@ -422,27 +422,21 @@ def compute_phi_n(t: float, state: List[Dict], config: Dict) -> np.ndarray:
                 # NOUVEAU : Chaque strate danse autour de SA signature propre
                 # ω personnalisée basée sur sa position dans le pentagone
                 omega_n = omega * (1.0 + 0.2 * np.sin(n * 2 * np.pi / N))  # Fréquence propre
-                
                 # Modulation spiralée AUTOUR de sa signature
                 personal_spiral = epsilon * np.sin(2 * np.pi * omega_n * t + phi_signature)
-                
                 # Interaction douce avec le ratio global r(t)
                 global_influence = 0.3 * (r_t - phi_golden) * np.cos(phi_signature)
-                
                 # Interaction inter-strates basée sur affinités phasiques
                 inter_strata_influence = 0.0
                 for j in range(N):
                     if j != n:
                         w_nj = state[n].get('w', [0.0]*N)[j] if len(state[n].get('w', [])) > j else 0.0
                         phi_j_signature = state[j].get('phi', 0.0)
-                        
                         # Affinité basée sur proximité des signatures
                         signature_affinity = np.cos(phi_signature - phi_j_signature)
                         inter_strata_influence += 0.05 * w_nj * signature_affinity * np.sin(2 * np.pi * omega * t)
-                
                 # Phase finale : SIGNATURE + danse personnelle + influences
                 phi_n_t[n] = phi_signature + personal_spiral + global_influence + inter_strata_influence
-                
             else:
                 # Mode original (fallback)
                 spiral_phase_increment = r_t * epsilon * np.sin(2 * np.pi * omega * t + n * 2 * np.pi / N)
@@ -452,7 +446,6 @@ def compute_phi_n(t: float, state: List[Dict], config: Dict) -> np.ndarray:
                         w_nj = state[n].get('w', [0.0]*N)[j] if len(state[n].get('w', [])) > j else 0.0
                         phase_diff = state[j].get('phi', 0.0) - phi_signature
                         inter_strata_influence += 0.1 * w_nj * np.sin(phase_diff)
-                
                 phi_n_t[n] = phi_signature + spiral_phase_increment + inter_strata_influence
     else:
         # Mode statique
@@ -553,49 +546,119 @@ def compute_gamma(t: float, mode: str = "static", T: Optional[float] = None,
         return 1.0
 
 
-def compute_gamma_n(t: float, state: List[Dict], config: Dict) -> np.ndarray:
+def compute_gamma_n(t: float, state: List[Dict], config: Dict, gamma_global: Optional[float] = None,
+                    En_array: Optional[np.ndarray] = None, On_array: Optional[np.ndarray] = None,
+                    An_array: Optional[np.ndarray] = None, fn_array: Optional[np.ndarray] = None,
+                    history: Optional[List[Dict]] = None) -> np.ndarray:
     """
     Calcule la latence expressive par strate.
+    
+    NOUVELLE VERSION : Modulation locale basée sur l'état dynamique de chaque strate.
+    gamma_n = gamma_global * f(erreur_n, amplitude_n, fréquence_n)
     
     Args:
         t: temps actuel
         state: état des strates
         config: configuration
+        gamma_global: gamma global pré-calculé (optionnel, pour modes adaptatifs)
+        En_array: attentes par strate (optionnel)
+        On_array: observations par strate (optionnel)
+        An_array: amplitudes par strate (optionnel)
+        fn_array: fréquences par strate (optionnel)
+        history: historique de simulation pour récupérer les valeurs précédentes (optionnel)
     
     Returns:
-        np.ndarray: latences par strate
+        np.ndarray: latences par strate modulées localement
     """
     N = len(state)
     gamma_n_t = np.zeros(N)
     
     # Configuration de latence
     latence_config = config.get('latence', {})
-    # IMPORTANT: Utiliser gamma_mode (pas gamma_n_mode) pour cohérence
     gamma_mode = latence_config.get('gamma_mode', 'static')
     T = config.get('system', {}).get('T', 100)
     
-    # Récupérer les paramètres k et t0 depuis gamma_dynamic
-    gamma_dynamic = latence_config.get('gamma_dynamic', {})
-    k = gamma_dynamic.get('k', None)
-    t0 = gamma_dynamic.get('t0', None)
-    
-    if gamma_mode in ["static", "dynamic", "sigmoid_up", "sigmoid_down", "sigmoid_adaptive", "sigmoid_oscillating", "sinusoidal"]:
-        # Utiliser compute_gamma pour tous les modes avec k et t0
+    # Si gamma_global n'est pas fourni, le calculer
+    if gamma_global is None:
+        gamma_dynamic = latence_config.get('gamma_dynamic', {})
+        k = gamma_dynamic.get('k', None)
+        t0 = gamma_dynamic.get('t0', None)
         gamma_global = compute_gamma(t, gamma_mode, T, k, t0)
-        
-        # Option 1: Toutes les strates utilisent le même gamma
-        gamma_n_t[:] = gamma_global
-        
-        # Option 2: Décalage progressif entre strates (si activé dans config)
-        if latence_config.get('strata_delay', False):
+    
+    # Paramètres de modulation (peuvent être dans config)
+    modulation_config = latence_config.get('modulation', {})
+    k_error = modulation_config.get('k_error', 0.1)      # Poids de l'erreur
+    k_amplitude = modulation_config.get('k_amplitude', 0.1)  # Poids de l'amplitude  
+    k_frequency = modulation_config.get('k_frequency', 0.05) # Poids de la fréquence
+    gamma_min = modulation_config.get('gamma_min', 0.5)  # Borne inf : gamma_global * 0.5
+    gamma_max = modulation_config.get('gamma_max', 1.5)  # Borne sup : gamma_global * 1.5
+    
+    # Essayer de récupérer les données depuis l'historique si non fournies
+    if history and len(history) > 0:
+        last_step = history[-1]
+        if En_array is None and 'E' in last_step:
+            En_array = last_step['E'] if isinstance(last_step['E'], np.ndarray) else None
+        if On_array is None and 'O' in last_step:
+            On_array = last_step['O'] if isinstance(last_step['O'], np.ndarray) else None
+        if An_array is None and 'An' in last_step:
+            An_array = last_step['An'] if isinstance(last_step['An'], np.ndarray) else None
+        if fn_array is None and 'fn' in last_step:
+            fn_array = last_step['fn'] if isinstance(last_step['fn'], np.ndarray) else None
+    
+    # Mode legacy si pas de modulation ou données manquantes
+    if not modulation_config.get('enabled', True) or any(x is None for x in [En_array, On_array, An_array, fn_array]):
+        # Comportement legacy avec décalage temporel optionnel
+        if latence_config.get('strata_delay', False) and gamma_global is None:
             for n in range(N):
-                t_shifted = t - n * T / (2 * N)  # Décalage temporel progressif
-                gamma_n_t[n] = compute_gamma(t_shifted, gamma_mode, T, k, t0)
+                t_shifted = t - n * T / (2 * N)
+                gamma_n_t[n] = compute_gamma(t_shifted, gamma_mode, T, 
+                                           latence_config.get('gamma_dynamic', {}).get('k', None),
+                                           latence_config.get('gamma_dynamic', {}).get('t0', None))
         else:
             gamma_n_t[:] = gamma_global
-    else:
-        # Mode non reconnu, utiliser static par défaut
-        gamma_n_t[:] = 1.0
+        return gamma_n_t
+    
+    # NOUVELLE MODULATION : gamma_n = gamma_global * facteur_modulation_n
+    if modulation_config.get('verbose', False) and t < 1.0:  # Log seulement au début
+        print(f"[MODULATION] t={t:.2f}: Modulation locale activée (k_err={k_error}, k_amp={k_amplitude}, k_freq={k_frequency})")
+    
+    for n in range(N):
+        # 1. Erreur normalisée (positive = observation > attente)
+        error_n = On_array[n] - En_array[n]
+        # Normaliser par l'amplitude moyenne pour éviter explosion
+        A_mean = np.mean(np.abs(An_array)) if np.mean(np.abs(An_array)) > 0 else 1.0
+        error_norm = np.tanh(error_n / A_mean)  # Entre -1 et 1
+        
+        # 2. Amplitude normalisée (activité de la strate)
+        amplitude_norm = An_array[n] / A_mean if A_mean > 0 else 1.0
+        amplitude_factor = 1.0 + k_amplitude * (amplitude_norm - 1.0)
+        
+        # 3. Fréquence normalisée (rapidité du rythme local)
+        f_mean = np.mean(fn_array) if np.mean(fn_array) > 0 else 1.0
+        freq_norm = fn_array[n] / f_mean
+        freq_factor = 1.0 + k_frequency * (freq_norm - 1.0)
+        
+        # 4. Facteur d'erreur : erreur positive → gamma plus court (réaction plus rapide)
+        #                       erreur négative → gamma plus long (attente prudente)
+        error_factor = 1.0 - k_error * error_norm
+        
+        # 5. Combiner les facteurs multiplicativement
+        modulation_factor = error_factor * amplitude_factor * freq_factor
+        
+        # 6. Appliquer à gamma_global avec protection des bornes
+        gamma_n_t[n] = gamma_global * modulation_factor
+        
+        # 7. Bornes adaptatives : rester dans [gamma_min*gamma_global, gamma_max*gamma_global]
+        gamma_n_t[n] = np.clip(gamma_n_t[n], gamma_min * gamma_global, gamma_max * gamma_global)
+        
+        # 8. Bornes absolues de sécurité
+        gamma_n_t[n] = np.clip(gamma_n_t[n], 0.1, 1.0)
+    
+    # Log de vérification de la modulation (seulement si verbose et au début)
+    if modulation_config.get('verbose', False) and t < 1.0:
+        gamma_range = np.ptp(gamma_n_t)  # peak-to-peak (max - min)
+        if gamma_range > 0.01:
+            print(f"[MODULATION] γ_n varie de {gamma_n_t.min():.3f} à {gamma_n_t.max():.3f} (écart={gamma_range:.3f})")
     
     return gamma_n_t
 
@@ -1028,8 +1091,10 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
     return np.clip(gamma, 0.1, 1.0), journal['current_regime'], journal
 
 
-def compute_G_adaptive_aware(error: float, t: float, gamma_current: float, 
-                           history: List[Dict], state: Dict) -> Tuple[float, str, Dict]:
+def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
+                              regulation_state: Dict, history: List[Dict], config: Dict,
+                              allow_soft_preference: bool = True,
+                              score_pair_now: bool = False):
     """
     G(x) adaptatif pleinement conscient de γ et de leur danse commune.
     
@@ -1040,10 +1105,10 @@ def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
     """
     
     # Récupérer la mémoire de régulation
-    if 'regulation_state' not in state:
-        state['regulation_state'] = {}
-    if 'regulation_memory' not in state['regulation_state']:
-        state['regulation_state']['regulation_memory'] = {
+    if 'regulation_state' not in regulation_state:
+        regulation_state['regulation_state'] = {}
+    if 'regulation_memory' not in regulation_state['regulation_state']:
+        regulation_state['regulation_state']['regulation_memory'] = {
             'effectiveness_by_context': {},  # (G_arch, γ_range, error_range) → effectiveness
             'preferred_G_by_gamma': {},
             'G_transition_history': [],
@@ -1052,7 +1117,7 @@ def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
             'adaptation_cycles': 0
         }
     
-    reg_memory = state['regulation_state']['regulation_memory']
+    reg_memory = regulation_state['regulation_state']['regulation_memory']
     
     # 1. ANALYSER L'EFFICACITÉ CONTEXTUELLE
     if len(history) >= 30:
@@ -1166,6 +1231,22 @@ def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
         else:  # tanh
             params = {"lambda": 0.5 + 0.5 * gamma_current}
     
+    # SOFT PREFERENCE: si une préférence douce est définie, orienter G_arch sans l'imposer
+    prefer_arch = reg_memory.get('prefer_next_arch')
+    prefer_time = reg_memory.get('prefer_hint_time', -1)
+    if prefer_arch and prefer_arch in ['tanh', 'resonance', 'spiral_log', 'adaptive']:
+        # Respecter un petit cooldown: si dernière transition très récente, ne pas switcher brutalement
+        cooldown = 5
+        if t - reg_memory.get('last_transition_time', -1e9) >= cooldown:
+            # Blending doux: 60% choix courant, 40% préférence
+            # Implémenté comme: si different, on bascule vers prefer_arch mais on laissera la transition douce gérer la continuité
+            if prefer_arch != G_arch:
+                G_arch = prefer_arch
+                params = regulation.adapt_params_for_archetype(G_arch, gamma_current, error_magnitude)
+        # Consommer la préférence une fois lue (éviter de forcer à chaque pas)
+        reg_memory.pop('prefer_next_arch', None)
+        reg_memory.pop('prefer_hint_time', None)
+    
     # 4. VÉRIFIER L'EFFICACITÉ HISTORIQUE
     error_bucket = 'low' if error_magnitude < 0.1 else 'medium' if error_magnitude < 0.5 else 'high'
     context_key = (G_arch, gamma_bucket, error_bucket)
@@ -1246,7 +1327,60 @@ def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
     # Incrémenter le compteur d'utilisation
     reg_memory['preferred_G_by_gamma'][gamma_bucket][actual_G_arch] += 1
     
-    return G_value, actual_G_arch, params
+    # Après avoir décidé de G_value et G_arch_used
+    # --- Nouveau: scoring de la paire (gamma, G_arch_used) + oubli spiralé ---
+    try:
+        mem = regulation_state.get('regulation_memory', {}) if isinstance(regulation_state, dict) else {}
+        # 1) Oubli spiralé/spacing: décroissance continue de la confiance
+        phi = config.get('spiral', {}).get('phi', 1.618)
+        base_tau = float(config.get('exploration', {}).get('spacing_effect', {}).get('base_tau', 20.0))
+        spacing_level = int(mem.get('spacing_level', 0))
+        tau = base_tau * (phi ** spacing_level)
+        last_decay_update = float(mem.get('last_decay_update', t))
+        dt = max(0.0, float(t) - last_decay_update)
+        if dt > 0:
+            decay = float(np.exp(-dt / max(1e-6, tau)))
+            mem['best_pair_confidence'] = float(mem.get('best_pair_confidence', 0.0)) * decay
+            mem['last_decay_update'] = float(t)
+        # 2) Évaluer et renforcer uniquement lors des pics planifiés
+        if score_pair_now and history:
+            best = mem.get('best_pair', None)
+            # Mémoïsation par t pour éviter N recalculs par step
+            if mem.get('last_scores_t', None) == float(t) and 'last_adaptive_scores' in mem:
+                adaptive_scores = mem['last_adaptive_scores']
+            else:
+                adaptive_scores = metrics.calculate_all_scores(history, config).get('current', {})
+                mem['last_scores_t'] = float(t)
+                mem['last_adaptive_scores'] = adaptive_scores
+            criteria = ['stability', 'regulation', 'fluidity', 'resilience', 'innovation', 'cpu_cost', 'effort']
+            gaps = []
+            for c in criteria:
+                s = float(adaptive_scores.get(c, 3.0))
+                gaps.append(max(0.0, 5.0 - s))
+            mean_gap = float(np.mean(gaps)) if gaps else 2.0
+            score = 5.0 - mean_gap
+            current_pair = {'gamma': float(gamma_current), 'G_arch': G_arch, 'score': float(score), 't': float(t)}
+            improved = (not best) or (score > best.get('score', -1e-9))
+            close_enough = best and (score >= best.get('score', 0.0) - 0.02)
+            if improved:
+                mem['best_pair'] = current_pair
+            # Renforcement (spacing): confiance augmente doucement, et spacing_level progresse
+            if improved or close_enough or mem.get('best_pair_confidence', 0.0) < 0.2:
+                conf = float(mem.get('best_pair_confidence', 0.0))
+                mem['best_pair_confidence'] = min(1.0, 0.7 * conf + 0.3)
+                mem['last_reinforce_time'] = float(t)
+                mem['spacing_level'] = spacing_level + 1
+            # Journal léger
+            pairs = mem.get('pairs_log', [])
+            if len(pairs) < 1000:
+                pairs.append(current_pair)
+            else:
+                pairs.pop(0); pairs.append(current_pair)
+            mem['pairs_log'] = pairs
+        regulation_state['regulation_memory'] = mem
+    except Exception:
+        pass
+    return G_value, G_arch, params
 
 
 # ============== SORTIES OBSERVÉE ET ATTENDUE ==============
@@ -1552,7 +1686,9 @@ def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray,
             return compute_S(t, An_array, fn_array, phi_n_array, {'system': {'signal_mode': 'simple'}})
         
         # Calculer les composants nécessaires
-        gamma_n_t = compute_gamma_n(t, state, config)
+        # Passer l'historique pour la modulation locale
+        gamma_n_t = compute_gamma_n(t, state, config, history=history,
+                                   An_array=An_array, fn_array=fn_array)
         En_t = compute_En(t, state, history, config)
         On_t = compute_On(t, state, An_array, fn_array, phi_n_array, gamma_n_t)
         

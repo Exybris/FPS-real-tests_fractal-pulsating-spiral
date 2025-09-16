@@ -290,7 +290,7 @@ def initialize_system(config, post_init_callback=None):
     n_metrics = len(config['system']['logging']['log_metrics'])
     estimated_points = N * T * n_metrics
     estimated_mb = (estimated_points * 8) / (1024 * 1024)  # 8 bytes par float64
-    safe_limit = 2_000_000  # seuil arbitraire, à adapter
+    safe_limit = 5_000_000  # seuil adapté pour longues simulations
     
     if estimated_points > safe_limit:
         warning_msg = (

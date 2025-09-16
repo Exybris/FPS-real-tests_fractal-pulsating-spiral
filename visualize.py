@@ -214,8 +214,8 @@ def plot_metrics_dashboard(metrics_history: Union[Dict[str, List], List[Dict]]) 
         history_dict = metrics_history
     
     # Créer la grille de subplots - Augmenter la taille pour le nouveau bloc
-    fig = plt.figure(figsize=(16, 14))
-    gs = GridSpec(4, 3, figure=fig, hspace=0.3, wspace=0.3)
+    fig = plt.figure(figsize=(16, 15))
+    gs = GridSpec(5, 3, figure=fig, hspace=0.3, wspace=0.3)
     
     # 1. Signal global S(t)
     if 'S(t)' in history_dict:
@@ -308,7 +308,7 @@ def plot_metrics_dashboard(metrics_history: Union[Dict[str, List], List[Dict]]) 
         ax7.set_title('Répartition des états d\'effort', fontweight='bold')
     
     # 8. NOUVEAU BLOC : Alignement En/On et gamma
-    ax8 = fig.add_subplot(gs[3, :])  # Prend toute la largeur de la dernière ligne
+    ax8 = fig.add_subplot(gs[3, :])  # Prend toute la largeur de la quatrième ligne
     
     # Tracer En_mean et On_mean
     if 'En_mean(t)' in history_dict and 'On_mean(t)' in history_dict:
@@ -389,6 +389,23 @@ def plot_metrics_dashboard(metrics_history: Union[Dict[str, List], List[Dict]]) 
     ax9.text(0.1, 0.9, stats_text, transform=ax9.transAxes, 
              fontsize=10, verticalalignment='top',
              bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    
+    # 10. NOUVEAU : Best pair score par pas
+    if 'best_pair_score' in history_dict:
+        ax10 = fig.add_subplot(gs[4, :])
+        score = np.array(history_dict['best_pair_score'], dtype=float)
+        ax10.plot(score, color=FPS_COLORS['accent'], linewidth=2, label='Best pair score (courant)')
+        # Marquer les améliorations
+        if len(score) > 1:
+            best_so_far = np.maximum.accumulate(np.nan_to_num(score, nan=0.0))
+            improvements = np.where(np.diff(best_so_far, prepend=best_so_far[0]) > 1e-9)[0]
+            ax10.scatter(improvements, score[improvements], color=FPS_COLORS['success'], s=30, zorder=3, label='Amélioration')
+        ax10.set_title('Évolution du best_pair_score (viser 5)', fontweight='bold')
+        ax10.set_xlabel('Pas de temps')
+        ax10.set_ylabel('Score (0-5)')
+        ax10.set_ylim(0, 5.1)
+        ax10.grid(True, alpha=0.3)
+        ax10.legend(loc='lower right')
     
     # Titre global
     fig.suptitle('Tableau de bord FPS - Vue d\'ensemble', fontsize=16, fontweight='bold')

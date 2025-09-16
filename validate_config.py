@@ -10,7 +10,11 @@ METRIQUES_VALIDES = {
     "mean_abs_error", "mean_high_effort", "d_effort_dt", "t_retour",
     "max_median_ratio", "A_spiral(t)", "continuous_resilience", "adaptive_resilience",
     "En_mean(t)", "On_mean(t)", "gamma", "gamma_mean(t)", "In_mean(t)",
-    "An_mean(t)", "fn_mean(t)", "gamma_regime", "G_arch_used"
+    "An_mean(t)", "fn_mean(t)", "gamma_regime", "G_arch_used",
+    "spacing_gamma_bias", "spacing_G_hint", "spacing_planning_hint",
+    "best_pair_gamma", "best_pair_G", "best_pair_score",
+    "temporal_coherence", "autocorr_tau", "decorrelation_time",
+    "tau_S", "tau_gamma", "tau_A_mean", "tau_f_mean"
 }
 
 CRITERES_VALIDES = {

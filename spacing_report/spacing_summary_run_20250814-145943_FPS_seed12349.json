@@ -1,0 +1,53 @@
+{
+  "csv": "logs/run_20250814-145943_FPS_seed12349.csv",
+  "cfg": "logs/config_run_20250814-145943_FPS_seed12349.json",
+  "num_detected_global": 182,
+  "num_scheduled": 9,
+  "matches": [
+    {
+      "scheduled": 2.0,
+      "detected": 1.9,
+      "delta": -0.10000000000000009
+    },
+    {
+      "scheduled": 9.5,
+      "detected": 9.6,
+      "delta": 0.09999999999999964
+    },
+    {
+      "scheduled": 26.375,
+      "detected": 26.5,
+      "delta": 0.125
+    },
+    {
+      "scheduled": 64.34375,
+      "detected": 64.4,
+      "delta": 0.056250000000005684
+    },
+    {
+      "scheduled": 149.7734375,
+      "detected": 149.9,
+      "delta": 0.12656250000000568
+    },
+    {
+      "scheduled": 341.990234375,
+      "detected": 341.9,
+      "delta": -0.09023437500002274
+    },
+    {
+      "scheduled": 774.47802734375,
+      "detected": 774.4,
+      "delta": -0.07802734375002274
+    },
+    {
+      "scheduled": 1747.5755615234375,
+      "detected": 1747.5,
+      "delta": -0.0755615234375
+    },
+    {
+      "scheduled": 3937.0450134277344,
+      "detected": 3936.9,
+      "delta": -0.14501342773428405
+    }
+  ]
+}

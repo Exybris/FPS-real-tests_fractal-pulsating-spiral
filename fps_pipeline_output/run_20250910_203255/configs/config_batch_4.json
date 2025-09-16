@@ -1,0 +1,360 @@
+{
+  "system": {
+    "N": 5,
+    "T": 1000,
+    "dt": 0.1,
+    "seed": 12349,
+    "mode": "FPS",
+    "signal_mode": "extended",
+    "max_history_size": 50000,
+    "logging": {
+      "level": "INFO",
+      "output": "csv",
+      "log_metrics": [
+        "t",
+        "S(t)",
+        "C(t)",
+        "A_spiral(t)",
+        "E(t)",
+        "L(t)",
+        "cpu_step(t)",
+        "effort(t)",
+        "A_mean(t)",
+        "f_mean(t)",
+        "variance_d2S",
+        "fluidity",
+        "entropy_S",
+        "mean_abs_error",
+        "mean_high_effort",
+        "d_effort_dt",
+        "t_retour",
+        "max_median_ratio",
+        "continuous_resilience",
+        "adaptive_resilience",
+        "effort_status",
+        "En_mean(t)",
+        "On_mean(t)",
+        "gamma",
+        "gamma_mean(t)",
+        "G_arch_used",
+        "In_mean(t)",
+        "An_mean(t)",
+        "fn_mean(t)",
+        "spacing_gamma_bias",
+        "spacing_G_hint"
+      ]
+    },
+    "input": {
+      "baseline": {
+        "offset_mode": "static",
+        "offset": 0.1,
+        "offset_adaptive": {
+          "target_sigma": 0.5,
+          "k_A": 0.01,
+          "min": 0.05,
+          "max": 0.5,
+          "window": 20,
+          "initial": 0.1
+        },
+        "gain_mode": "static",
+        "gain": 1.0,
+        "gain_adaptive": {
+          "target_range": 2.0,
+          "k_G": 0.05,
+          "min": 0.1,
+          "max": 2.0,
+          "window": 10,
+          "initial": 1.0
+        }
+      },
+      "scale": 1.2,
+      "perturbations": [
+        {
+          "type": "sinus",
+          "amplitude": 0.4,
+          "t0": 0.0,
+          "freq": 0.1,
+          "weight": 1.0
+        }
+      ]
+    }
+  },
+  "adaptive_windows": {
+    "exploration": {
+      "target_percent": 0.1,
+      "min_absolute": 30,
+      "max_percent": 0.25
+    },
+    "gamma_adaptation": {
+      "target_percent": 0.1,
+      "min_absolute": 50,
+      "max_percent": 0.2
+    },
+    "G_effectiveness": {
+      "target_percent": 0.06,
+      "min_absolute": 30,
+      "max_percent": 0.15
+    },
+    "scoring": {
+      "immediate": {
+        "target_percent": 0.02,
+        "min_absolute": 10
+      },
+      "recent": {
+        "target_percent": 0.1,
+        "min_absolute": 30
+      },
+      "medium": {
+        "target_percent": 0.4,
+        "min_absolute": 100
+      }
+    },
+    "transition_smoothing": {
+      "target_percent": 0.02,
+      "min_absolute": 10
+    },
+    "pattern_detection": {
+      "target_percent": 0.15,
+      "min_absolute": 50
+    }
+  },
+  "coupling": {
+    "type": "spiral",
+    "c": 0.1,
+    "closed": false,
+    "mirror": true
+  },
+  "strates": [
+    {
+      "id": 0,
+      "A0": 0.268941,
+      "f0": 0.7,
+      "phi": 0.0,
+      "alpha": 0.5,
+      "beta": 0.22,
+      "k": 2.0,
+      "x0": 0.5,
+      "w": [
+        0.0,
+        0.8,
+        0.3,
+        -0.5,
+        -0.6
+      ]
+    },
+    {
+      "id": 1,
+      "A0": 0.5,
+      "f0": 1.3,
+      "phi": 0.0,
+      "alpha": 0.6,
+      "beta": 0.32,
+      "k": 2.5,
+      "x0": 0.4,
+      "w": [
+        0.8,
+        0.0,
+        0.7,
+        -0.6,
+        -0.9
+      ]
+    },
+    {
+      "id": 2,
+      "A0": 0.7,
+      "f0": 0.4,
+      "phi": 0.0,
+      "alpha": 0.6,
+      "beta": 0.35,
+      "k": 1.8,
+      "x0": 0.6,
+      "w": [
+        0.3,
+        0.7,
+        0.0,
+        0.8,
+        -1.8
+      ]
+    },
+    {
+      "id": 3,
+      "A0": 0.4,
+      "f0": 1.8,
+      "phi": 0.0,
+      "alpha": 0.7,
+      "beta": 0.24,
+      "k": 2.2,
+      "x0": 0.45,
+      "w": [
+        -0.5,
+        -0.6,
+        0.8,
+        0.0,
+        0.3
+      ]
+    },
+    {
+      "id": 4,
+      "A0": 0.6,
+      "f0": 2.4,
+      "phi": 0.0,
+      "alpha": 0.45,
+      "beta": 0.38,
+      "k": 1.9,
+      "x0": 0.55,
+      "w": [
+        -0.6,
+        -0.9,
+        1.5,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "dynamic_parameters": {
+    "dynamic_phi": true,
+    "dynamic_beta": true,
+    "dynamic_alpha": false,
+    "dynamic_gamma": true,
+    "dynamic_G": true
+  },
+  "spiral": {
+    "phi": 1.618,
+    "epsilon": 0.1,
+    "omega": 0.05,
+    "theta": 0.0,
+    "signature_mode": "individual"
+  },
+  "regulation": {
+    "feedback_mode": "archetype",
+    "G_arch": "adaptive_aware",
+    "lambda": 1.7,
+    "alpha": 0.6,
+    "beta": 0.6,
+    "dynamic_G": true,
+    "lambda_E": 0.1,
+    "k_spacing": 0.0,
+    "epsilon_E": 0.01
+  },
+  "latence": {
+    "gamma_mode": "adaptive_aware",
+    "gamma_static_value": 1.0,
+    "gamma_dynamic": {
+      "k": 1.0,
+      "t0": 25
+    },
+    "strata_delay": false
+  },
+  "enveloppe": {
+    "env_type": "gaussienne",
+    "env_mode": "dynamic",
+    "mu_n": 0.0,
+    "sigma_n_static": 0.2,
+    "sigma_n_dynamic": {
+      "amp": 0.1,
+      "freq": 0.3,
+      "offset": 0.1,
+      "T": 50
+    }
+  },
+  "temporal_regulation": {
+    "use_temporal": true,
+    "eta_mode": "adaptive",
+    "eta_value": 1.0,
+    "theta_mode": "resonant",
+    "theta_value": 1.0
+  },
+  "modulation": {
+    "enabled": true,
+    "k_error": 0.1,
+    "k_amplitude": 0.1,
+    "k_frequency": 0.05,
+    "gamma_min": 0.5,
+    "gamma_max": 1.5,
+    "verbose": true
+  },
+  "exploration": {
+    "metrics": [
+      "S(t)",
+      "C(t)",
+      "A_mean(t)",
+      "f_mean(t)",
+      "entropy_S",
+      "effort(t)",
+      "mean_high_effort",
+      "d_effort_dt",
+      "mean_abs_error"
+    ],
+    "window_sizes": [
+      1,
+      10,
+      100
+    ],
+    "fractal_threshold": 0.8,
+    "detect_fractal_patterns": true,
+    "detect_anomalies": true,
+    "detect_harmonics": true,
+    "recurrence_window": [
+      1,
+      10,
+      100
+    ],
+    "anomaly_threshold": 3.0,
+    "min_duration": 3,
+    "spacing_effect": {
+      "enabled": true,
+      "start_interval": 2.0,
+      "growth": 1.5,
+      "num_blocks": 0,
+      "order": [
+        "gamma",
+        "G",
+        "gamma",
+        "G"
+      ]
+    }
+  },
+  "to_calibrate": {
+    "variance_d2S": 0.01,
+    "fluidity_threshold": 0.3,
+    "stability_ratio": 10,
+    "resilience": 2,
+    "entropy_S": 0.5,
+    "mean_high_effort": 2,
+    "d_effort_dt": 5,
+    "t_retour": 1,
+    "effort_transitoire_threshold": 2.0,
+    "effort_chronique_threshold": 1.5,
+    "gamma_n": 1.0,
+    "env_n": "gaussienne",
+    "sigma_n": 0.1,
+    "cpu_step_ctrl": 2,
+    "max_chaos_events": 5
+  },
+  "validation": {
+    "criteria": [
+      "fluidity",
+      "stability",
+      "resilience",
+      "innovation",
+      "regulation",
+      "cpu_cost",
+      "effort_internal",
+      "effort_transient"
+    ],
+    "alert_sigma": 3,
+    "batch_size": 5,
+    "refine_after_runs": true,
+    "auto_log_refinement": true
+  },
+  "debug": {
+    "log_detailed": true,
+    "log_interval": 10
+  },
+  "analysis": {
+    "compare_kuramoto": true,
+    "save_indiv_files": true,
+    "export_html_report": true,
+    "visualize_grid": true
+  }
+}
