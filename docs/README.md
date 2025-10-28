@@ -17,6 +17,8 @@ Le système FPS a atteint sa **maturité opérationnelle** avec :
 
 ## Démarrage rapide
 
+disable spacing_effect (spacing_effect : false) in config.son) for falsifiable results
+
 ### Installation
 
 ```bash
