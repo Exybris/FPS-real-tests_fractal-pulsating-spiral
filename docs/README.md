@@ -17,7 +17,7 @@ Le système FPS a atteint sa **maturité opérationnelle** avec :
 
 ## Démarrage rapide
 
-disable spacing_effect (spacing_effect : false) in config.son) for falsifiable results
+disable spacing_effect in config.son ("spacing_effect": {"enabled": true}) for falsifiable results
 
 ### Installation
 
