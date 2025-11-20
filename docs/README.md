@@ -1,5 +1,7 @@
 # FPS - Fractal Pulsating Spiral Pipeline v3
 
+The pipeline is not yet updated, but the complete, debugged, and explanatory notebook is coming soon
+
 ## 🌀 Vue d'ensemble (mise à jour et correction du readme à venir)
 
 La FPS (Fractal Pulsating Spiral) est un système d'oscillateurs adaptatifs avec régulation spiralée implémentant les équations mathématiques décrites dans le document théorique FPS. Le pipeline actuel est en **pré-phase 3**, avec une architecture fonctionnelle complète prête pour l'implémentation de la latence adaptative et de la fonction G(x) réellement adaptative.
