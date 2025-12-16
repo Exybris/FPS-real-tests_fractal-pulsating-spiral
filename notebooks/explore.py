@@ -22,6 +22,7 @@ et sujette à reproductibilité.
 """
 
 import numpy as np
+import pandas as pd
 import json
 import csv
 import os
@@ -821,6 +822,360 @@ def generate_report(events: List[Dict], report_path: str,
         f.write("```json\n")
         f.write(json.dumps(deep_convert(config.get('exploration', {})), indent=2))
         f.write("\n```\n")
+
+
+
+# ============== CORRÉLATIONS ==============
+
+def export_all_correlations(history: List[Dict],
+                            output_csv: str = None,
+                            output_json: str = None,
+                            metrics_to_analyze: List[str] = None):
+    """
+    Exporte TOUTES les corrélations entre métriques en CSV et/ou JSON.
+    
+    Args:
+        history: historique complet
+        output_csv: chemin pour le CSV (None = pas de CSV)
+        output_json: chemin pour le JSON (None = pas de JSON)
+        metrics_to_analyze: liste des métriques (None = toutes)
+        
+    Returns:
+        DataFrame: table de toutes les corrélations
+    """
+    if not history or len(history) < 20:
+        print("⚠️ Pas assez d'historique")
+        return None
+    
+    print("💾 Export de toutes les corrélations...")
+    
+    # Métriques par défaut
+    if metrics_to_analyze is None:
+        metrics_to_analyze = [
+            'S(t)', 'C(t)', 'E(t)',
+            'effort(t)', 'entropy_S', 'fluidity',
+            'mean_abs_error', 'variance_d2S', 'std_S',
+            'gamma', 'gamma_mean(t)',
+            'An_mean(t)', 'fn_mean(t)',
+            'En_mean(t)', 'On_mean(t)', 'In_mean(t)',
+            'tau_A_mean', 'tau_f_mean', 'tau_S', 'tau_gamma', 'tau_C',
+            'temporal_coherence', 'adaptive_resilience', 'continuous_resilience',
+            'best_pair_score', 'best_pair_gamma',
+            'decorrelation_time', 'autocorr_tau',
+            'mean_high_effort', 'd_effort_dt', 'max_median_ratio'
+        ]
+    
+    # Créer DataFrame
+    data = {}
+    for metric in metrics_to_analyze:
+        values = []
+        for h in history:
+            val = h.get(metric)
+            values.append(float(val) if val is not None else np.nan)
+        data[metric] = values
+    
+    df = pd.DataFrame(data)
+    
+    # Supprimer colonnes avec trop de NaN
+    df_clean = df.dropna(axis=1, thresh=len(df) * 0.5)
+    
+    print(f"✓ {df_clean.shape[1]} métriques valides")
+    
+    # Calculer matrice de corrélation
+    corr_matrix = df_clean.corr()
+    
+    # Créer table de toutes les paires
+    all_correlations = []
+    
+    for i in range(len(corr_matrix)):
+        for j in range(i+1, len(corr_matrix)):  # i+1 pour éviter les doublons
+            metric1 = corr_matrix.columns[i]
+            metric2 = corr_matrix.columns[j]
+            corr_val = corr_matrix.iloc[i, j]
+            
+            if not np.isnan(corr_val):
+                all_correlations.append({
+                    'metric_1': metric1,
+                    'metric_2': metric2,
+                    'correlation': corr_val,
+                    'abs_correlation': abs(corr_val),
+                    'correlation_type': 'positive' if corr_val > 0 else 'negative',
+                    'strength': (
+                        'very_strong' if abs(corr_val) > 0.9 else
+                        'strong' if abs(corr_val) > 0.7 else
+                        'moderate' if abs(corr_val) > 0.5 else
+                        'weak' if abs(corr_val) > 0.3 else
+                        'very_weak'
+                    )
+                })
+    
+    # Créer DataFrame
+    df_corr = pd.DataFrame(all_correlations)
+    
+    # Trier par valeur absolue (plus forte en premier)
+    df_corr = df_corr.sort_values('abs_correlation', ascending=False)
+    
+    # Export CSV
+    if output_csv:
+        df_corr.to_csv(output_csv, index=False)
+        print(f"✅ CSV sauvegardé: {output_csv}")
+        print(f"   - {len(df_corr)} paires de corrélations")
+    
+    # Export JSON
+    if output_json:
+        export_data = {
+            'metadata': {
+                'n_metrics': df_clean.shape[1],
+                'n_timesteps': len(df_clean),
+                'n_pairs': len(all_correlations),
+                'metrics_analyzed': list(df_clean.columns)
+            },
+            'correlations': all_correlations,
+            'summary': {
+                'very_strong': sum(1 for c in all_correlations if abs(c['correlation']) > 0.9),
+                'strong': sum(1 for c in all_correlations if 0.7 < abs(c['correlation']) <= 0.9),
+                'moderate': sum(1 for c in all_correlations if 0.5 < abs(c['correlation']) <= 0.7),
+                'weak': sum(1 for c in all_correlations if 0.3 < abs(c['correlation']) <= 0.5),
+                'very_weak': sum(1 for c in all_correlations if abs(c['correlation']) <= 0.3)
+            }
+        }
+        
+        with open(output_json, 'w') as f:
+            json.dump(export_data, f, indent=2)
+        
+        print(f"✅ JSON sauvegardé: {output_json}")
+    
+    # Statistiques
+    print(f"\nRésumé:")
+    print(f"  - Corrélations très fortes (>0.9): {sum(1 for c in all_correlations if abs(c['correlation']) > 0.9)}")
+    print(f"  - Corrélations fortes (0.7-0.9): {sum(1 for c in all_correlations if 0.7 < abs(c['correlation']) <= 0.9)}")
+    print(f"  - Corrélations modérées (0.5-0.7): {sum(1 for c in all_correlations if 0.5 < abs(c['correlation']) <= 0.7)}")
+    
+    return df_corr
+
+
+def find_correlations_with_metric(df_correlations: pd.DataFrame, 
+                                 metric_name: str,
+                                 min_strength: float = 0.5,
+                                 output_csv: str = None,
+                                 output_json: str = None):
+    """
+    Trouve toutes les corrélations impliquant une métrique spécifique.
+    
+    Args:
+        df_correlations: DataFrame retourné par export_all_correlations
+        metric_name: nom de la métrique à chercher
+        min_strength: corrélation minimale (en valeur absolue)
+        output_csv: chemin pour exporter en CSV (None = pas d'export)
+        output_json: chemin pour exporter en JSON (None = pas d'export)
+        
+    Returns:
+        DataFrame: corrélations filtrées
+    """
+    if df_correlations is None:
+        print("⚠️ Pas de données de corrélations")
+        return None
+    
+    # Filtrer les lignes où metric_name apparaît
+    mask = (
+        (df_correlations['metric_1'] == metric_name) | 
+        (df_correlations['metric_2'] == metric_name)
+    ) & (df_correlations['abs_correlation'] >= min_strength)
+    
+    result = df_correlations[mask].copy()
+    
+    if len(result) == 0:
+        print(f"⚠️ Aucune corrélation >= {min_strength} trouvée pour {metric_name}")
+        return None
+    
+    # Normaliser : mettre metric_name toujours en premier
+    normalized_result = []
+    for _, row in result.iterrows():
+        if row['metric_1'] == metric_name:
+            other_metric = row['metric_2']
+        else:
+            other_metric = row['metric_1']
+        
+        normalized_result.append({
+            'target_metric': metric_name,
+            'correlated_with': other_metric,
+            'correlation': row['correlation'],
+            'abs_correlation': row['abs_correlation'],
+            'correlation_type': row['correlation_type'],
+            'strength': row['strength']
+        })
+    
+    result_normalized = pd.DataFrame(normalized_result)
+    result_normalized = result_normalized.sort_values('abs_correlation', ascending=False)
+    
+    print(f"🔍 {len(result_normalized)} corrélations trouvées pour {metric_name}:")
+    print(f"   (seuil minimum: {min_strength})")
+    
+    # Afficher le top 10
+    for _, row in result_normalized.head(10).iterrows():
+        print(f"   • {row['correlated_with']:25s}: {row['correlation']:+.3f} ({row['strength']})")
+    
+    if len(result_normalized) > 10:
+        print(f"   ... et {len(result_normalized) - 10} autres")
+    
+    # Export CSV
+    if output_csv:
+        result_normalized.to_csv(output_csv, index=False)
+        print(f"\n✅ CSV sauvegardé: {output_csv}")
+    
+    # Export JSON
+    if output_json:
+        export_data = {
+            'metadata': {
+                'target_metric': metric_name,
+                'min_strength': min_strength,
+                'n_correlations': len(result_normalized)
+            },
+            'correlations': normalized_result,
+            'summary': {
+                'very_strong': sum(1 for c in normalized_result if abs(c['correlation']) > 0.9),
+                'strong': sum(1 for c in normalized_result if 0.7 < abs(c['correlation']) <= 0.9),
+                'moderate': sum(1 for c in normalized_result if 0.5 < abs(c['correlation']) <= 0.7),
+                'positive_count': sum(1 for c in normalized_result if c['correlation'] > 0),
+                'negative_count': sum(1 for c in normalized_result if c['correlation'] < 0)
+            }
+        }
+        
+        with open(output_json, 'w') as f:
+            json.dump(export_data, f, indent=2)
+        
+        print(f"✅ JSON sauvegardé: {output_json}")
+    
+    return result_normalized
+
+
+print("✅ Fonctions d'export de corrélations chargées!")
+print("   - export_all_correlations() : Export CSV/JSON complet")
+print("   - find_correlations_with_metric() : Recherche par métrique")
+
+
+# ============== ANALYSE DE LA DIVERSITÉ DES STRATES ==============
+
+def analyze_stratum_diversity(history: List[Dict], config: Dict):
+    """
+    Analyse la diversité des strates à partir de l'historique de simulation.
+    
+    Args:
+        history: historique complet de la simulation
+        config: configuration (pour récupérer N)
+    
+    Returns:
+        dict avec statistiques par strate
+    """
+    if not history or len(history) < 10:
+        print("⚠️ Pas assez d'historique pour analyser")
+        return None
+    
+    # Récupérer le nombre de strates
+    N = config['system']['N']
+    
+    results = {}
+    
+    print("\n📊 ANALYSE DE DIVERSITÉ PAR STRATE")
+    print("="*80)
+    
+    # Pour chaque strate
+    for n in range(N):
+        # ✅ Extraire les données depuis history
+        An_values = []
+        On_values = []
+        fn_values = []
+        error_values = []
+        S_contrib_values = []
+        
+        for h in history:
+            # Récupérer les arrays
+            An = h.get('An', [])
+            On = h.get('O', [])
+            fn = h.get('fn', [])
+            En = h.get('E', [])
+            
+            # Vérifier que les indices existent
+            if len(An) > n:
+                An_values.append(An[n])
+            if len(On) > n:
+                On_values.append(On[n])
+            if len(fn) > n:
+                fn_values.append(fn[n])
+            
+            # Erreur = En - On
+            if len(En) > n and len(On) > n:
+                error_values.append(En[n] - On[n])
+            
+            # Contribution à S (si disponible)
+            S_contrib = h.get('S_contrib', [])
+            if len(S_contrib) > n:
+                S_contrib_values.append(S_contrib[n])
+        
+        # Si pas assez de données pour cette strate, skip
+        if len(An_values) < 10:
+            continue
+        
+        # Calculer les statistiques
+        results[n] = {
+            'An_mean': np.mean(An_values) if An_values else 0,
+            'An_std': np.std(An_values) if An_values else 0,
+            'An_max': np.max(An_values) if An_values else 0,
+            'On_mean': np.mean(On_values) if On_values else 0,
+            'On_std': np.std(On_values) if On_values else 0,
+            'On_range': (np.max(On_values) - np.min(On_values)) if On_values else 0,
+            'fn_mean': np.mean(fn_values) if fn_values else 0,
+            'fn_final': fn_values[-1] if fn_values else 0,
+            'error_mean': np.mean(error_values) if error_values else 0,
+            'error_std': np.std(error_values) if error_values else 0,
+            'S_contrib_mean': np.mean(S_contrib_values) if S_contrib_values else 0,
+            'S_contrib_total': np.sum(S_contrib_values) if S_contrib_values else 0
+        }
+        
+        # Affichage
+        print(f"\n📍 Strate {n}:")
+        print(f"   An:  {results[n]['An_mean']:.6f} ± {results[n]['An_std']:.6f}  (max: {results[n]['An_max']:.6f})")
+        print(f"   On:  {results[n]['On_mean']:.6f} ± {results[n]['On_std']:.6f}  (range: {results[n]['On_range']:.6f})")
+        print(f"   fn:  {results[n]['fn_mean']:.2f} → {results[n]['fn_final']:.2f}")
+        print(f"   Erreur: {results[n]['error_mean']:.6f} ± {results[n]['error_std']:.6f}")
+        print(f"   Contrib S: {results[n]['S_contrib_mean']:.6f} (total: {results[n]['S_contrib_total']:.6f})")
+    
+    # ===== Analyse globale (identique) =====
+    print("\n\n📊 ANALYSE GLOBALE")
+    print("="*80)
+    
+    # Diversité des amplitudes
+    An_means = [results[n]['An_mean'] for n in results.keys()]
+    An_diversity = np.std(An_means) / (np.mean(An_means) + 1e-10)
+    print(f"\n  Diversité des amplitudes (CV): {An_diversity:.3f}")
+    
+    # Annulation dans On
+    On_means = [results[n]['On_mean'] for n in results.keys()]
+    On_total = np.sum(On_means)
+    On_abs_total = np.sum(np.abs(On_means))
+    if On_abs_total > 1e-6:
+        cancellation_ratio = 1 - abs(On_total) / On_abs_total
+        print(f"  Annulation dans On: {cancellation_ratio*100:.1f}%")
+        print(f"     (Σ|On| = {On_abs_total:.6f}, Σ On = {On_total:.6f})")
+    else:
+        print(f"  On très faible partout (~0)")
+    
+    # Contributions à S(t)
+    S_contribs = [results[n]['S_contrib_total'] for n in results.keys()]
+    S_total = np.sum(S_contribs)
+    print(f"\n  Contribution totale à S(t): {S_total:.6f}")
+    
+    # Strates dominantes
+    if len(S_contribs) > 0:
+        top_contrib_idx = np.argsort(np.abs(S_contribs))[-min(3, len(S_contribs)):][::-1]
+        print(f"\n  Top 3 contributeurs à S(t):")
+        for idx in top_contrib_idx:
+            print(f"     Strate {idx}: {S_contribs[idx]:.6f}")
+    
+    return results
+
+
+
 
 
 # ============== UTILITAIRES ==============

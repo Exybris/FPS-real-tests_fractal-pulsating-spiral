@@ -1013,3 +1013,67 @@ def save_coupled_discoveries(gamma_journal: Dict, regulation_state: Dict,
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(json_str)
         print(f"  ⚠️  Fichier volumineux ({size_mb:.1f}MB) sauvegardé sans division : {output_path}")
+
+
+def select_representative_strata(N, config=None, n_strata_to_show=None):
+    """
+    Sélectionne des strates représentatives pour visualisation.
+    
+    Args:
+        N: Nombre total de strates
+        config: Configuration (optionnel)
+        n_strata_to_show: Nombre exact de strates à montrer (override config)
+    
+    Returns:
+        list: Indices des strates sélectionnées, répartis uniformément
+    """
+    # Déterminer combien de strates à montrer
+    if n_strata_to_show is not None:
+        # Override explicite
+        n_show = n_strata_to_show
+    elif config and 'visualization' in config:
+        # Depuis config (pourcentage ou nombre absolu)
+        viz_config = config['visualization']
+        
+        if 'strata_sample_percent' in viz_config:
+            # Pourcentage (ex: 0.2 = 20%)
+            percent = viz_config['strata_sample_percent']
+            n_show = max(1, int(N * percent))
+        elif 'strata_sample_count' in viz_config:
+            # Nombre absolu
+            n_show = viz_config['strata_sample_count']
+        else:
+            # Défaut : 10% avec min 5, max 10
+            n_show = max(5, min(10, N // 10))
+    else:
+        # Défaut : adaptatif selon N
+        if N <= 10:
+            n_show = N  # Tout montrer
+        elif N <= 50:
+            n_show = 5  # 10%
+        else:
+            n_show = max(5, min(10, N // 10))
+    
+    # Limiter entre 1 et N
+    n_show = max(1, min(n_show, N))
+    
+    # Sélectionner les indices uniformément répartis
+    if n_show == 1:
+        indices = [0]
+    elif n_show == 2:
+        indices = [0, N-1]
+    elif n_show >= N:
+        indices = list(range(N))
+    else:
+        # Répartition uniforme : toujours inclure début et fin
+        indices = [0]  # Toujours la première
+        
+        # Strates intermédiaires espacées uniformément
+        step = (N - 1) / (n_show - 1)
+        for i in range(1, n_show - 1):
+            idx = int(round(i * step))
+            indices.append(idx)
+        
+        indices.append(N - 1)  # Toujours la dernière
+    
+    return indices
