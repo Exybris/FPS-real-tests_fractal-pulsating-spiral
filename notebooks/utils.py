@@ -771,7 +771,7 @@ def deep_convert_for_json(obj):
 
 
 def generate_spiral_weights(N: int,
-                            c: float = 0.25,
+                            c: float = 0.25, c_edge: float = 0.25,
                             closed: bool = False,
                             mirror: bool = False) -> List[List[float]]:
     """Generate an antisymmetric weight matrix producing a spiral-like coupling.
@@ -801,23 +801,34 @@ def generate_spiral_weights(N: int,
 
     if N <= 1:
         return [[0.0]]  # trivial case
+    
+    if c_edge is None:
+        c_edge = c
 
     W = _np.zeros((N, N))
 
+
     # Forward couplings
     for i in range(N - 1):
-        W[i, i + 1] = +c
-        W[i + 1, i] = -c
+        W[i, i+1] = +c
+        W[i, i-1] = -c
 
     # Optionally close the ring
     if closed and N > 2:
         W[N - 1, 0] = +c
         W[0, N - 1] = -c
     elif mirror and N > 2:
-        # Reflect the excess at the edges onto the adjacent inner nodes
-        # so that every row sums to zero while keeping the open spiral direction.
-        W[0, 1] -= c     # first row sum becomes zero
-        W[N-1, N-2] += c # last row sum becomes zero
+        # bords avec "retour miroir" antisymétrique
+        # ligne 0 : +c depuis 1, -c_edge depuis N-1
+        W[0, 1]     = +c
+        W[0, N-1]   = -c_edge
+
+        # ligne N-1 : +c_edge depuis 0, -c depuis N-2
+        W[N-1, 0]   = +c_edge
+        W[N-1, N-2] = -c
+
+        # antisymétrie exacte (sécurité)
+        W = 0.5*(W - W.T)
 
     # Convert to plain Python lists (to be JSON-serialisable)
     return W.tolist()

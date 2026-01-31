@@ -1762,6 +1762,7 @@ def visualize_stratum_patterns(history, config, output_dir=None, show=True):
     An_data = []
     On_data = []
     fn_data = []
+    phin_data = []
     S_contrib_data = []
 
     # 3. Remplir depuis history
@@ -1770,6 +1771,7 @@ def visualize_stratum_patterns(history, config, output_dir=None, show=True):
         An_data.append(h.get('An', []))
         On_data.append(h.get('O', []))  # 'O' pas 'On' !
         fn_data.append(h.get('fn', []))
+        phin_data.append(h.get('phi_n_t', []))
         S_contrib_data.append(h.get('S_contrib', []))
 
     # 4. Convertir en numpy arrays
@@ -1777,6 +1779,7 @@ def visualize_stratum_patterns(history, config, output_dir=None, show=True):
     An_data = np.array(An_data)
     On_data = np.array(On_data)
     fn_data = np.array(fn_data)
+    phin_data = np.array(phin_data)
     S_contrib_data = np.array(S_contrib_data)
 
     # DEBUG
@@ -2039,6 +2042,64 @@ def visualize_stratum_patterns(history, config, output_dir=None, show=True):
         output_path3 = Path(output_dir) / 'stratum_frequency_divergence.png'
         plt.savefig(output_path3, dpi=150, bbox_inches='tight')
         print(f"✅ Figure 3 sauvegardée: {output_path3}")
+
+    # ========================================================================
+    # FIGURE 4 : PHASE PAR STRATE ET PATTERNS D'ANNULATION
+    # ========================================================================
+    
+    fig4 = plt.figure(figsize=(16, 10))
+    gs4 = GridSpec(3, 2, figure=fig4, hspace=0.3, wspace=0.3)
+
+    # 1A. Évolution temporelle de On pour quelques strates
+    ax4a = fig4.add_subplot(gs4[0, :])
+    
+    # Sélection intelligente des strates à visualiser
+    strates_to_plot = utils.select_representative_strata(N, config, n_strata_to_show=5)
+    key_strates = utils.select_representative_strata(N, config, n_strata_to_show=3)
+    
+    print(f"Visualisation de {len(strates_to_plot)} strates représentatives: {strates_to_plot}")
+
+    colors = plt.cm.viridis(np.linspace(0, 1, len(strates_to_plot)))
+    
+    for i, n in enumerate(strates_to_plot):
+        ax4a.plot(t, phin_data[:, n], label=f'Strate {n}', 
+                 color=colors[i], alpha=0.7, linewidth=1.5)
+    
+    ax4a.set_xlabel('Temps (s)', fontsize=11)
+    ax4a.set_ylabel('phin(t)', fontsize=11)
+    ax4a.set_title('Phases Individuelles - Chaque Strate exprime son identité', 
+                   fontsize=13, fontweight='bold')
+    ax4a.legend(loc='upper right', fontsize=9)
+    ax4a.grid(True, alpha=0.3)
+    ax4a.axhline(y=0, color='black', linestyle='--', linewidth=0.8, alpha=0.5)
+    
+
+    # 1D. Heatmap des phin(t) par strate
+    ax4d = fig4.add_subplot(gs4[2, :])
+    
+    im = ax4d.imshow(phin_data.T, aspect='auto', cmap='RdBu_r', 
+                     extent=[t[0], t[-1], N-0.5, -0.5],
+                     vmin=-0.05, vmax=0.05, interpolation='bilinear')
+    
+    ax4d.set_xlabel('Temps (s)', fontsize=11)
+    ax4d.set_ylabel('Strate n', fontsize=11)
+    ax4d.set_title('Carte Thermique - Le Ballet Collectif des phases des 50 Strates', 
+                   fontsize=12, fontweight='bold')
+    
+    cbar = plt.colorbar(im, ax=ax4d, orientation='vertical', pad=0.01)
+    cbar.set_label('phin(t)', fontsize=10)
+    
+    # Marquer les strates dominantes
+    for n in [9, 10, 28]:
+        ax4d.axhline(y=n, color='yellow', linestyle=':', linewidth=1.5, alpha=0.5)
+    
+    fig4.suptitle('L\'ÉQUILIBRE DES IDENTITÉS - Chimères ou non ?', 
+                  fontsize=15, fontweight='bold', y=0.995)
+    
+    if output_dir:
+        output_path4 = Path(output_dir) / 'stratum_phase_annulation_patterns.png'
+        plt.savefig(output_path4, dpi=150, bbox_inches='tight')
+        print(f"✅ Figure 4 sauvegardée: {output_path4}")
     
     if show:
         plt.show()
@@ -2051,6 +2112,7 @@ def visualize_stratum_patterns(history, config, output_dir=None, show=True):
         'An_data': An_data,
         'On_data': On_data,
         'fn_data': fn_data,
+        'phin_data': phin_data,
         'S_contrib_data': S_contrib_data,
         'cancellation_ratio': cancellation_ratio,
         'S_total': S_total,
