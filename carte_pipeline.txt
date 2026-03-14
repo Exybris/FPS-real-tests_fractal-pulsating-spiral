@@ -30,27 +30,27 @@ CLI
             │   │   ├── init.load_config(...)
             │   │   ├── validate_config.validate_config(...)
             │   │   ├── init.init_strates(...)
-            │   │   │   ├── generate_spiral_weights (si coupling spiral/ring)
+            │   │   │   ├── utils.generate_spiral_weights (si coupling spiral/ring)
             │   │   │   └── verify_weight_matrix
             │   │   ├── init.setup_logging(...)
             │   │   ├── run_fps_simulation(...)
             │   │   │   ├── [setup spacing] config.exploration.spacing_effect
-│     	    │   │   │   │   ├── use_spacing
-│     	    │   │   │   │   └── spacing_schedule.build_spacing_schedule -> schedule_steps
+            │   │   │   │   ├── use_spacing
+            │   │   │   │   └── spacing_schedule.build_spacing_schedule -> schedule_steps
             │   │   │   ├── perturbations.compute_In
             │   │   │   ├── dynamics.compute_An / compute_fn / compute_phi_n
             │   │   │   ├── gamma [branch]
-│   	    │   │   │   │   ├── if adaptive_aware -> dynamics.compute_gamma_adaptive_aware
-│   	    │	│   │	│   ├── else -> dynamics.compute_gamma
-│   	    │	│   │	│   └── dynamics.compute_gamma_n 
-│   	    │	│   │	│       └── [if spacing planned] rebias gamma + recompute gamma_n
+            │   │   │   │   ├── if adaptive_aware -> dynamics.compute_gamma_adaptive_aware
+            │   │   │   │   ├── else -> dynamics.compute_gamma
+            │   │   │   │   └── dynamics.compute_gamma_n
+            │   │   │   │       └── [if spacing planned] rebias gamma + recompute gamma_n
             │   │   │   ├── dynamics.compute_On / compute_En
             │   │   │   ├── G [branch]
-    	    │	│   │	│   ├── if adaptive_aware -> dynamics.compute_G_adaptive_aware
-│   	    │	│   │	│   │   └── [if spacing planned] hint switch G arch
-    	    │	│   │	│   └── else
-            │ 	│   │	│	 ├── feedback simple -> identity
-            │	│   │	│	 └── feedback régulé -> regulation.compute_G
+            │   │   │   │   ├── if adaptive_aware -> dynamics.compute_G_adaptive_aware
+            │   │   │   │   │   └── [if spacing planned] hint switch G arch
+            │   │   │   │   └── else
+            │   │   │   │       ├── feedback simple -> identity
+            │   │   │   │       └── feedback régulé -> regulation.compute_G
             │   │   │   ├── dynamics.update_state
             │   │   │   ├── dynamics.compute_S / compute_C / compute_A / compute_A_spiral / compute_E / compute_L
             │   │   │   ├── metrics.compute_effort / compute_effort_status
@@ -92,7 +92,14 @@ CLI
             │       ├── log_refinement
             │       └── export_threshold_journal
             ├── generate_visualizations(...)
+            │   ├── calculate_empirical_scores(...)
+            │   │   └── metrics.calculate_all_scores(history, config) [si history suffisant]
             │   └── visualize.plot_signal_evolution / plot_metrics_dashboard / plot_fps_vs_kuramoto /
             │      create_empirical_grid / generate_correlation_matrix
             └── generate_final_report(...)
                 └── visualize.export_html_report(...)
+
+
+- dynamics.compute_An(...) peut appeler regulation.compute_sigma_n / compute_mu_n / compute_env_n.
+- dynamics.compute_G_adaptive_aware(...) utilise regulation.compute_G / adapt_params_for_archetype.
+- dynamics.compute_G_adaptive_aware(...) et dynamics.compute_gamma_adaptive_aware(...) peuvent aussi consulter metrics.calculate_all_scores(recent_history) pour gamma, et metrics.calculate_all_scores(history, config) pour G.
