@@ -702,7 +702,7 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
     
     Combine :
     - Surveillance multi-critères (6 métriques)
-    - Détection du spacing effect
+    - Détection des patterns d'emergence
     - Conscience de l'archétype G actuel
     - Communication bidirectionnelle avec G(x)
     - Journal enrichi des découvertes couplées
@@ -723,11 +723,6 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
             'system_performance': [],  # AJOUT de system_performance
             'rest_phases': [],
             'optimal_gamma_patterns': {},
-            'spacing_analysis': {
-                'intervals': [],
-                'emerging': False,
-                'maturity_score': 0
-            },
             # NOUVEAU : Conscience de G
             'coupled_states': {},           # (γ, G_arch) → performances
             'G_transition_impacts': [],     # Impacts des changements
@@ -882,7 +877,7 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
                 'performance': system_performance_score,
                 'interval_since_last': interval,
                 'scores': current_scores.copy(),
-                'G_arch': current_G_arch  # IMPORTANT pour spacing_by_G
+                'G_arch': current_G_arch
             }
             
             journal['gamma_peaks'].append(peak_info)
@@ -910,47 +905,6 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
             'start': t,
             'avg_performance': system_performance_score
         })
-    
-    # 8. ANALYSER LE SPACING EFFECT
-    if len(journal['gamma_peaks']) >= 3:
-        # Calculer les intervalles entre pics
-        intervals = []
-        for peak in journal['gamma_peaks'][-5:]:
-            if peak.get('interval_since_last') is not None:
-                intervals.append(peak['interval_since_last'])
-        
-        if len(intervals) >= 2:
-            # Vérifier si les intervalles augmentent
-            increasing_intervals = all(
-                intervals[i] <= intervals[i+1] 
-                for i in range(len(intervals)-1)
-            )
-            
-            # Vérifier si la performance moyenne augmente aussi
-            peak_performances = [
-                peak['performance'] 
-                for peak in journal['gamma_peaks'][-len(intervals)-1:]
-            ]
-            increasing_performance = np.polyfit(range(len(peak_performances)), 
-                                               peak_performances, 1)[0] > 0
-            
-            # Détecter l'émergence du spacing effect
-            if increasing_intervals and increasing_performance:
-                journal['spacing_analysis']['emerging'] = True
-                journal['spacing_analysis']['intervals'] = intervals
-                
-                # Calculer la maturité (0-1)
-                interval_growth = (intervals[-1] - intervals[0]) / intervals[0] if intervals[0] > 0 else 0
-                perf_growth = (peak_performances[-1] - peak_performances[0]) / peak_performances[0] if peak_performances[0] > 0 else 0
-                journal['spacing_analysis']['maturity_score'] = min(1.0, (interval_growth + perf_growth) / 2)
-                
-                # Enregistrer la découverte
-                if journal['spacing_analysis']['maturity_score'] > 0.5:
-                    journal['breakthrough_moments'].append({
-                        't': t,
-                        'type': 'spacing_effect',
-                        'note': f'Spacing effect émergent ! Intervalles: {intervals}, Maturité: {journal["spacing_analysis"]["maturity_score"]:.2f}'
-                    })
     
     # 9. TROUVER LE GAMMA OPTIMAL SELON L'HISTORIQUE
     best_gamma_for_performance = None
@@ -1015,40 +969,6 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
                     'desired_G': best_synergy[1],
                     'signal_pattern': 'oscillation'
                 })
-    
-    elif journal['spacing_analysis']['emerging']:
-        # MODE SPACING CONSCIENT DE G
-        
-        # Le spacing effect peut être différent selon G !
-        spacing_by_G = defaultdict(list)
-        for peak in journal['gamma_peaks']:
-            if 'G_arch' in peak and peak.get('interval_since_last') is not None:
-                spacing_by_G[peak['G_arch']].append(peak['interval_since_last'])
-        
-        # Adapter le spacing selon le G actuel
-        if current_G_arch in spacing_by_G and len(spacing_by_G[current_G_arch]) >= 2:
-            optimal_interval = np.mean(spacing_by_G[current_G_arch]) * 1.1
-        else:
-            optimal_interval = 150  # Défaut
-        
-        # Logique de spacing adaptée à G
-        if not journal['gamma_peaks']:
-            gamma = 0.6
-        else:
-            last_peak = journal['gamma_peaks'][-1]
-            time_since_peak = t - last_peak['t']
-            base_gamma = best_synergy[0] if best_synergy else 0.8
-            phase = time_since_peak / optimal_interval
-    
-            if phase < 0.2:
-                gamma = base_gamma * (1 - phase * 5)
-            elif phase < 0.8:
-                gamma = 0.3 + 0.05 * np.sin(4 * np.pi * phase)
-            elif phase < 1.0:
-                rise = (phase - 0.8) / 0.2
-                gamma = 0.3 + (base_gamma - 0.3) * rise
-            else:
-                gamma = base_gamma
     
     else:
         # EXPLORATION CONSCIENTE
@@ -1331,11 +1251,10 @@ def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
     # --- Nouveau: scoring de la paire (gamma, G_arch_used) + oubli spiralé ---
     try:
         mem = regulation_state.get('regulation_memory', {}) if isinstance(regulation_state, dict) else {}
-        # 1) Oubli spiralé/spacing: décroissance continue de la confiance
+        # 1) Oubli spiralé: décroissance continue de la confiance
         phi = config.get('spiral', {}).get('phi', 1.618)
-        base_tau = float(config.get('exploration', {}).get('spacing_effect', {}).get('base_tau', 20.0))
-        spacing_level = int(mem.get('spacing_level', 0))
-        tau = base_tau * (phi ** spacing_level)
+        base_tau = 20.0
+        tau = base_tau
         last_decay_update = float(mem.get('last_decay_update', t))
         dt = max(0.0, float(t) - last_decay_update)
         if dt > 0:
@@ -1364,12 +1283,11 @@ def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
             close_enough = best and (score >= best.get('score', 0.0) - 0.02)
             if improved:
                 mem['best_pair'] = current_pair
-            # Renforcement (spacing): confiance augmente doucement, et spacing_level progresse
+            # Renforcement : confiance augmente doucement
             if improved or close_enough or mem.get('best_pair_confidence', 0.0) < 0.2:
                 conf = float(mem.get('best_pair_confidence', 0.0))
                 mem['best_pair_confidence'] = min(1.0, 0.7 * conf + 0.3)
                 mem['last_reinforce_time'] = float(t)
-                mem['spacing_level'] = spacing_level + 1
             # Journal léger
             pairs = mem.get('pairs_log', [])
             if len(pairs) < 1000:
@@ -1423,8 +1341,8 @@ def compute_En(t: float, state: List[Dict], history: List[Dict], config: Dict,
     NOUVEAU S1: Attracteur inertiel avec lambda_E adaptatif
     Eₙ(t) = (1-λ) * Eₙ(t-dt) + λ * φ * Oₙ(t-τ)
     
-    où λ peut être modulé par k_spacing selon le nombre d'alignements
-    
+    où λ est défini par lambda_E dans la config 
+
     Args:
         t: temps actuel
         state: état des strates
@@ -1440,16 +1358,9 @@ def compute_En(t: float, state: List[Dict], history: List[Dict], config: Dict,
     
     # Paramètres de l'attracteur inertiel
     lambda_E = config.get('regulation', {}).get('lambda_E', 0.05)
-    k_spacing = config.get('regulation', {}).get('k_spacing', 0.0)
     phi = config.get('spiral', {}).get('phi', 1.618)
     dt = config.get('system', {}).get('dt', 0.1)
-    
-    # Adapter lambda selon le nombre d'alignements (spacing effect)
-    if history_align is not None and k_spacing > 0:
-        n_alignments = len(history_align)
-        lambda_dyn = lambda_E / (1 + k_spacing * n_alignments)
-    else:
-        lambda_dyn = lambda_E
+    lambda_dyn = lambda_E
     
     if len(history) > 0:
         # Récupérer les valeurs précédentes

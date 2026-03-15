@@ -39,9 +39,7 @@
         "G_arch_used",
         "In_mean(t)",
         "An_mean(t)",
-        "fn_mean(t)",
-        "spacing_gamma_bias",
-        "spacing_G_hint"
+        "fn_mean(t)"
       ]
     },
     "input": {
@@ -233,7 +231,6 @@
     "beta": 0.6,
     "dynamic_G": true,
     "lambda_E": 0.10,
-    "k_spacing": 0.0,
     "epsilon_E": 0.01
   },
   "latence": {
@@ -300,14 +297,7 @@
       100
     ],
     "anomaly_threshold": 3.0,
-    "min_duration": 3,
-    "spacing_effect": {
-      "enabled": true,
-      "start_interval": 2.0,
-      "growth": 1.5,
-      "num_blocks": 0,
-      "order": ["gamma", "G", "gamma", "G"]
-    }
+    "min_duration": 3
   },
   "to_calibrate": {
     "variance_d2S": 0.01,
