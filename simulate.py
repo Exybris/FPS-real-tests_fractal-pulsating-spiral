@@ -46,10 +46,6 @@ import kuramoto
 import perturbations
 import utils
 from utils import deep_convert
-try:
-    import spacing_schedule
-except Exception:
-    spacing_schedule = None
 
 def safe_float_conversion(value, default=0.0):
     """Convertit une valeur en float sûr."""
@@ -84,16 +80,6 @@ def run_simulation(config_path, mode="FPS", strict=False):
         print("Config validation avec avertissements:")
         for w in warnings: print("  -", w)
     print("Config validation: OK")
-
-    # ---- 0.1. Assurer la présence des colonnes de log spacing avant setup_logging ----
-    try:
-        log_metrics_order = config['system']['logging'].get('log_metrics', [])
-        for extra in ['spacing_planning_hint', 'spacing_gamma_bias', 'spacing_G_hint', 'G_arch_used', 'best_pair_gamma', 'best_pair_G', 'best_pair_score', 'temporal_coherence', 'autocorr_tau', 'decorrelation_time', 'tau_S', 'tau_gamma', 'tau_A_mean', 'tau_f_mean']:
-            if extra not in log_metrics_order:
-                log_metrics_order.append(extra)
-        config['system']['logging']['log_metrics'] = log_metrics_order
-    except Exception:
-        pass
 
     # ---- 1. SEED : reproductibilité, log dans seeds.txt ----
     SEED = config['system']['seed']
@@ -187,35 +173,6 @@ def run_fps_simulation(config, state, loggers, strict=False):
         'regulation_state': {}
     }
 
-    # Optional spacing-effect schedule for exploration of gamma and G
-    spacing_cfg = config.get('exploration', {}).get('spacing_effect', {})
-    use_spacing = bool(spacing_cfg.get('enabled', False)) and spacing_schedule is not None
-    schedule = {'gamma_peaks': [], 'G_switches': []}
-    schedule_steps = {'gamma_peaks': set(), 'G_switches': set()}
-    if use_spacing:
-        total_time = float(T)
-        start_interval = float(spacing_cfg.get('start_interval', 2.0))
-        growth = float(spacing_cfg.get('growth', 1.5))
-        num_blocks = int(spacing_cfg.get('num_blocks', 8))
-        order = spacing_cfg.get('order', ['gamma', 'G'])
-        try:
-            schedule = spacing_schedule.build_spacing_schedule(total_time, start_interval, growth, num_blocks, order)
-            print(f"⏱️ Spacing schedule: {schedule}")
-            # Convert times to step indices with tolerance handled in-loop
-            schedule_steps['gamma_peaks'] = set(int(max(0, round(ti / dt))) for ti in schedule.get('gamma_peaks', []))
-            schedule_steps['G_switches'] = set(int(max(0, round(ti / dt))) for ti in schedule.get('G_switches', []))
-        except Exception as e:
-            print(f"⚠️ Spacing schedule disabled: {e}")
-            schedule = {'gamma_peaks': [], 'G_switches': []}
-            use_spacing = False
-
-    # Ensure new flags are present in log order for CSV
-    log_metrics_order = config['system']['logging'].get('log_metrics', [])
-    for extra in ['spacing_planning_hint', 'spacing_gamma_bias', 'spacing_G_hint', 'G_arch_used']:
-        if extra not in log_metrics_order:
-            log_metrics_order.append(extra)
-    config['system']['logging']['log_metrics'] = log_metrics_order
-    
     # INITIALISER all_metrics ET t EN DEHORS DE LA BOUCLE
     all_metrics = {}
     t = 0
@@ -249,9 +206,6 @@ def run_fps_simulation(config, state, loggers, strict=False):
     try:
         for step, t in enumerate(t_array):
             step_start = time.perf_counter()
-            spacing_planning_hint_flag = 0
-            spacing_gamma_bias_flag = 0
-            spacing_G_hint_flag = 0
             
             # ----------- 1. INPUTS ET PERTURBATIONS -----------
             # Nouvelle architecture In(t)
@@ -326,51 +280,8 @@ def run_fps_simulation(config, state, loggers, strict=False):
                                                    fn_array=fn_t,  # fn_t est déjà calculé  
                                                    history=history)
                 
-                # Spacing effect: if a scheduled gamma peak is near, gently bias gamma upward
-                if use_spacing and (schedule_steps['gamma_peaks'] or schedule_steps['G_switches']):
-                    planned = (
-                        step in schedule_steps['gamma_peaks'] or (step-1) in schedule_steps['gamma_peaks'] or (step+1) in schedule_steps['gamma_peaks'] or
-                        step in schedule_steps['G_switches'] or (step-1) in schedule_steps['G_switches'] or (step+1) in schedule_steps['G_switches']
-                    )
-                    if planned:
-                        spacing_planning_hint_flag = 1
-                        # Impulsion d'exploration marquée sur gamma (pic net)
-                        try:
-                            se_cfg = config.get('exploration', {}).get('spacing_effect', {})
-                            impulse_mag = float(se_cfg.get('impulse_gamma_magnitude', 0.25))
-                        except Exception:
-                            impulse_mag = 0.25
-                        gamma_t = min(1.0, max(0.1, gamma_t + impulse_mag))
-                        spacing_gamma_bias_flag = 1
-                        # Recalculer gamma_n_t avec la nouvelle valeur
-                        gamma_n_t = dynamics.compute_gamma_n(t, state, config, gamma_t,
-                                                           An_array=An_t, fn_array=fn_t, history=history)
-                        # Guidance douce vers la meilleure paire connue si confiance élevée
-                        try:
-                            mem_top = adaptive_state.get('regulation_state', {}).get('regulation_memory', {})
-                            conf = float(mem_top.get('best_pair_confidence', 0.0))
-                            best_pair = mem_top.get('best_pair', {})
-                            if conf >= 0.6 and best_pair:
-                                target_gamma = float(best_pair.get('gamma', gamma_t))
-                                # Nudge gamma (10% vers la cible)
-                                gamma_t = 0.9 * gamma_t + 0.1 * target_gamma
-                                spacing_gamma_bias_flag = 1
-                                # Recalculer encore gamma_n_t
-                                gamma_n_t = dynamics.compute_gamma_n(t, state, config, gamma_t,
-                                                                   An_array=An_t, fn_array=fn_t, history=history)
-                                # Hint G vers la meilleure arch
-                                bpG = str(best_pair.get('G_arch', 'tanh'))
-                                mem_top['prefer_next_arch'] = bpG
-                                mem_top['prefer_hint_time'] = float(t)
-                                adaptive_state.setdefault('regulation_state', {})['regulation_memory'] = mem_top
-                                spacing_G_hint_flag = 1
-                        except Exception as e:
-                            # Erreur dans l'accès aux données d'apprentissage 
-                            pass
-                else:
-                    # Modes classiques
-                    gamma_t = dynamics.compute_gamma(t, gamma_mode, T, k, t0)
-                    gamma_regime = 'classic'  # Pour les modes non-adaptatifs
+                gamma_t = dynamics.compute_gamma(t, gamma_mode, T, k, t0)
+                gamma_regime = 'classic'  # Pour les modes non-adaptatifs
                     
             except Exception as e:
                 print(f"❌ ERREUR CRITIQUE calculs dynamiques à t={t}: {e}")
@@ -452,36 +363,10 @@ def run_fps_simulation(config, state, loggers, strict=False):
                     
                     # NOUVEAU : Calculer G selon le mode configuré
                     if G_arch_mode == 'adaptive_aware':
-                        # G adaptatif (peut fonctionner avec ou sans gamma adaptatif)
-                        planned = False
-                        if use_spacing and (schedule_steps['gamma_peaks'] or schedule_steps['G_switches']):
-                            planned = (
-                                step in schedule_steps['gamma_peaks'] or (step-1) in schedule_steps['gamma_peaks'] or (step+1) in schedule_steps['gamma_peaks'] or
-                                step in schedule_steps['G_switches'] or (step-1) in schedule_steps['G_switches'] or (step+1) in schedule_steps['G_switches']
-                            )
+                        # G adaptatif
                         G_value, G_arch_used, G_params = dynamics.compute_G_adaptive_aware(
-                            error_n, t, gamma_t, adaptive_state, history, config, True, planned
+                            error_n, t, gamma_t, adaptive_state, history, config, True, False
                         )
-                        # Spacing effect: encourage G switch at scheduled times by nudging memory
-                        if use_spacing and (schedule_steps['gamma_peaks'] or schedule_steps['G_switches']):
-                            if planned:
-                                # set a soft preference for next G archetype
-                                mem = adaptive_state.get('regulation_state', {}).get('regulation_memory', {})
-                                if isinstance(mem, dict):
-                                    # rotate a suggested arch different from current
-                                    candidates = ['resonance', 'spiral_log', 'adaptive', 'tanh']
-                                    current = mem.get('current_G_arch', 'tanh')
-                                    try:
-                                        idx = (candidates.index(current) + 1) % len(candidates)
-                                    except Exception:
-                                        idx = 0
-                                    mem['prefer_next_arch'] = candidates[idx]
-                                    mem['prefer_hint_time'] = float(t)
-                                    mem['last_transition_time'] = max(0, t - 100)  # relax cool-down
-                                spacing_G_hint_flag = 1
-                            if adaptive_state.get('gamma_journal') is None:
-                                adaptive_state['gamma_journal'] = {}
-                            adaptive_state['gamma_journal'].setdefault('communication_signals', []).append({'t': float(t), 'step': int(step), 'planning': True, 'type': 'spacing_G_switch_hint'})
                         G_archs_used.append(G_arch_used)
                     else:
                         # G statique selon config
@@ -706,9 +591,8 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 
                 # Calculer et logger lambda_dyn pour le debug
                 lambda_E = config.get('regulation', {}).get('lambda_E', 0.05)
-                k_spacing = config.get('regulation', {}).get('k_spacing', 0.0)
                 n_alignments = len(history_align)
-                lambda_dyn = lambda_E / (1 + k_spacing * n_alignments)
+                lambda_dyn = lambda_E
                 
                 if config.get('debug', {}).get('log_alignments', False):
                     print(f"[S1] Alignement #{n_alignments} à t={t:.2f}: |E-O|={mean_abs_error:.4f} < {epsilon_E}, λ_dyn={lambda_dyn:.4f}")
@@ -812,9 +696,6 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 'An_mean(t)': A_mean_t,
                 'fn_mean(t)': f_mean_t,
                 'G_arch_used': G_arch_dominant if 'G_arch_dominant' in locals() else 'tanh',
-                'spacing_planning_hint': int(spacing_planning_hint_flag),
-                'spacing_gamma_bias': int(spacing_gamma_bias_flag),
-                'spacing_G_hint': int(spacing_G_hint_flag)
             }
 
             # Ajouter la meilleure paire connue depuis la mémoire de régulation
@@ -954,9 +835,6 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 'gamma': gamma_t,
                 'G_arch_used': G_arch_dominant if 'G_arch_dominant' in locals() else 'tanh',
                 'gamma_regime': gamma_regime if 'gamma_regime' in locals() else 'unknown',
-                'spacing_planning_hint': int(spacing_planning_hint_flag),
-                'spacing_gamma_bias': int(spacing_gamma_bias_flag),
-                'spacing_G_hint': int(spacing_G_hint_flag),
                 'best_pair': mem.get('best_pair', {}) if 'mem' in locals() else {},
                 'G_values': debug_log_data.get('G_values', []),
                 'G_archs': debug_log_data.get('G_archs', [])
