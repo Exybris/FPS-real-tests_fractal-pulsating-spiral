@@ -12,7 +12,7 @@ sys.path.append(os.path.dirname(__file__))
 from validate_config import validate_config
 
 """
-init.py - Initialisation et validation du système FPS/Kuramoto
+init.py - Initialisation et validation du système FPS
 Phase 1 du projet FPS - Version structurée et robuste
 
 Fonctionnalités :
@@ -223,7 +223,7 @@ def setup_logging(config, log_dir="logs", mode_suffix=None):
     Args:
         config: Configuration du système
         log_dir: Dossier de logs (défaut: "logs")
-        mode_suffix: Suffixe optionnel pour différencier les modes (ex: "FPS", "Kuramoto", "Neutral")
+        mode_suffix: Suffixe optionnel pour différencier les modes (ex: "FPS")
     """
     seed = config['system']['seed']
     os.makedirs(log_dir, exist_ok=True)
@@ -275,11 +275,11 @@ def initialize_system(config, post_init_callback=None):
                            Signature: callback(system_state) -> None
     
     Exemple d'usage:
-        def patch_for_kuramoto(system_state):
-            system_state['mode'] = 'Kuramoto'
-            system_state['kuramoto_specific'] = {...}
+        def patch_for_fps(system_state):
+            system_state['mode'] = 'fps'
+            system_state['fps_specific'] = {...}
         
-        system_state = initialize_system(config, post_init_callback=patch_for_kuramoto)
+        system_state = initialize_system(config, post_init_callback=patch_for_fps)
     """
     set_seed(config['system']['seed'])
     strates = init_strates(config)

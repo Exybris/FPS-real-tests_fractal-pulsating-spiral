@@ -90,8 +90,8 @@ def validate_system(system, collector):
         collector.add_error("system.dt doit être un float > 0")
     if not is_int(seed):
         collector.add_error("system.seed doit être un entier")
-    if mode not in ["FPS", "Kuramoto", "neutral"]:
-        collector.add_error("system.mode doit être 'FPS', 'Kuramoto' ou 'neutral'")
+    if mode not in ["FPS"]:
+        collector.add_error("system.mode doit être 'FPS'")
 
     # Logging
     level = logging.get("level")
@@ -324,7 +324,7 @@ def validate_validation(validation, collector):
             collector.add_error(f"validation.{boolkey} doit être booléen")
 
 def validate_analysis(analysis, collector):
-    for boolkey in ["compare_kuramoto", "save_indiv_files", "export_html_report", "visualize_grid"]:
+    for boolkey in ["save_indiv_files", "export_html_report", "visualize_grid"]:
         if boolkey in analysis and not is_bool(analysis[boolkey]):
             collector.add_error(f"analysis.{boolkey} doit être booléen")
 
@@ -490,7 +490,6 @@ def generate_default_config(N=5, T=100):
             "auto_log_refinement": True
         },
         "analysis": {
-            "compare_kuramoto": True,
             "save_indiv_files": N > 10,
             "export_html_report": True,
             "visualize_grid": True
