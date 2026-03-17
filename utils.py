@@ -771,7 +771,7 @@ def deep_convert_for_json(obj):
 
 
 def generate_spiral_weights(N: int,
-                            c: float = 0.25,
+                            c: float = 0.25, c_edge: float = 0.25,
                             closed: bool = False,
                             mirror: bool = False) -> List[List[float]]:
     """Generate an antisymmetric weight matrix producing a spiral-like coupling.
@@ -801,26 +801,182 @@ def generate_spiral_weights(N: int,
 
     if N <= 1:
         return [[0.0]]  # trivial case
+    
+    if c_edge is None:
+        c_edge = c
 
     W = _np.zeros((N, N))
 
+
     # Forward couplings
     for i in range(N - 1):
-        W[i, i + 1] = +c
-        W[i + 1, i] = -c
+        W[i, i+1] = +c
+        W[i, i-1] = -c
 
     # Optionally close the ring
     if closed and N > 2:
         W[N - 1, 0] = +c
         W[0, N - 1] = -c
     elif mirror and N > 2:
-        # Reflect the excess at the edges onto the adjacent inner nodes
-        # so that every row sums to zero while keeping the open spiral direction.
-        W[0, 1] -= c     # first row sum becomes zero
-        W[N-1, N-2] += c # last row sum becomes zero
+        # bords avec "retour miroir" antisymétrique
+        # ligne 0 : +c depuis 1, -c_edge depuis N-1
+        W[0, 1]     = +c
+        W[0, N-1]   = -c_edge
+
+        # ligne N-1 : +c_edge depuis 0, -c depuis N-2
+        W[N-1, 0]   = +c_edge
+        W[N-1, N-2] = -c
+
+        # antisymétrie exacte (sécurité)
+        W = 0.5*(W - W.T)
 
     # Convert to plain Python lists (to be JSON-serialisable)
     return W.tolist()
+
+# ============== TESTS ET VALIDATION ==============
+
+if __name__ == "__main__":
+    """
+    Tests du module utils.py
+    """
+    print("=== Tests du module utils.py ===\n")
+    
+    # Test 1: Génération d'ID
+    print("Test 1 - Génération d'identifiants:")
+    for i in range(3):
+        run_id = generate_run_id()
+        print(f"  ID {i+1}: {run_id}")
+    
+    # Test 2: Gestion des dossiers
+    print("\nTest 2 - Structure de dossiers:")
+    dirs = setup_directories("test_fps_output")
+    for key, path in dirs.items():
+        print(f"  {key}: {path}")
+    
+    # Test 3: Sauvegarde de seed
+    print("\nTest 3 - Log de seed:")
+    test_seed = 42
+    log_seed(test_seed, os.path.join(dirs['logs'], "seeds.txt"))
+    print(f"  Seed {test_seed} loguée")
+    
+    # Test 4: Sauvegarde d'état
+    print("\nTest 4 - Sauvegarde/restauration d'état:")
+    test_state = {
+        't': 50.0,
+        'strates': [{'id': 0, 'An': 1.0}, {'id': 1, 'An': 0.8}],
+        'history': [{'t': 0, 'S': 0}, {'t': 1, 'S': 0.5}]
+    }
+    
+    checkpoint_path = os.path.join(dirs['checkpoints'], "test_checkpoint.pkl")
+    save_simulation_state(test_state, checkpoint_path)
+    
+    restored_state = load_simulation_state(checkpoint_path)
+    print(f"  État restauré: t={restored_state['t']}, n_strates={len(restored_state['strates'])}")
+    
+    # Test 5: Configuration et métadonnées
+    print("\nTest 5 - Log de configuration:")
+    test_config = {
+        'system': {'N': 3, 'T': 100, 'mode': 'FPS', 'seed': 42},
+        'strates': [{'A0': 1.0, 'f0': 1.0}] * 3
+    }
+    log_config_and_meta(test_config, "test_run", dirs['configs'])
+    
+    # Test 6: Checksum
+    print("\nTest 6 - Checksum:")
+    test_file = checkpoint_path
+    checksum = compute_checksum(test_file)
+    print(f"  SHA256: {checksum[:32]}...")
+    
+    # Test 7: Formatage de durée
+    print("\nTest 7 - Formatage de durée:")
+    durations = [45.3, 125.7, 3665.2, 7200.0]
+    for d in durations:
+        print(f"  {d}s → {format_duration(d)}")
+    
+    # Test 8: Informations système
+    print("\nTest 8 - Informations système:")
+    try:
+        sys_info = get_system_info()
+        print(f"  Python: {sys_info['python_version']}")
+        print(f"  CPUs: {sys_info['cpu_count']}")
+        print(f"  RAM: {sys_info['memory_available_gb']:.1f}/{sys_info['memory_total_gb']:.1f} GB")
+    except:
+        print("  (psutil non disponible)")
+    
+    # Test 9: Archive
+    print("\nTest 9 - Archivage:")
+    archive_path = archive_run(dirs['base'])
+    print(f"  Archive créée: {archive_path}")
+    
+    # Nettoyage
+    shutil.rmtree("test_fps_output", ignore_errors=True)
+    if os.path.exists(archive_path):
+        os.remove(archive_path)
+    
+    print("\n✅ Module utils.py prêt à orchestrer la symphonie FPS")
+
+def select_representative_strata(N, config=None, n_strata_to_show=None):
+    """
+    Sélectionne des strates représentatives pour visualisation.
+    
+    Args:
+        N: Nombre total de strates
+        config: Configuration (optionnel)
+        n_strata_to_show: Nombre exact de strates à montrer (override config)
+    
+    Returns:
+        list: Indices des strates sélectionnées, répartis uniformément
+    """
+    # Déterminer combien de strates à montrer
+    if n_strata_to_show is not None:
+        # Override explicite
+        n_show = n_strata_to_show
+    elif config and 'visualization' in config:
+        # Depuis config (pourcentage ou nombre absolu)
+        viz_config = config['visualization']
+        
+        if 'strata_sample_percent' in viz_config:
+            # Pourcentage (ex: 0.2 = 20%)
+            percent = viz_config['strata_sample_percent']
+            n_show = max(1, int(N * percent))
+        elif 'strata_sample_count' in viz_config:
+            # Nombre absolu
+            n_show = viz_config['strata_sample_count']
+        else:
+            # Défaut : 10% avec min 5, max 10
+            n_show = max(5, min(10, N // 10))
+    else:
+        # Défaut : adaptatif selon N
+        if N <= 10:
+            n_show = N  # Tout montrer
+        elif N <= 50:
+            n_show = 5  # 10%
+        else:
+            n_show = max(5, min(10, N // 10))
+    
+    # Limiter entre 1 et N
+    n_show = max(1, min(n_show, N))
+    
+    # Sélectionner les indices uniformément répartis
+    if n_show == 1:
+        indices = [0]
+    elif n_show == 2:
+        indices = [0, N-1]
+    elif n_show >= N:
+        indices = list(range(N))
+    else:
+        # Répartition uniforme : toujours inclure début et fin
+        indices = [0]  # Toujours la première
+        
+        # Strates intermédiaires espacées uniformément
+        step = (N - 1) / (n_show - 1)
+        for i in range(1, n_show - 1):
+            idx = int(round(i * step))
+            indices.append(idx)
+        
+        indices.append(N - 1)  # Toujours la dernière
+    
+    return indices
 
 # ============== TESTS ET VALIDATION ==============
 

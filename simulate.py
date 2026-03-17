@@ -242,12 +242,14 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 # IMPORTANT: Ajouter l'historique à la config pour compute_An avec enveloppe dynamique
                 config_for_An = config.copy()
                 config_for_An['history'] = history
-                An_t = dynamics.compute_An(t, state, In_t, config_for_An)
-                
+                # Feedback séparé pour amplitude et fréquence (notebook)
+                F_n_t_An = np.zeros(N)
+                F_n_t_fn = np.zeros(N)
+                An_t = dynamics.compute_An(t, state, In_t, F_n_t_An, config_for_An)                
                 # Passer l'historique dans la config pour compute_fn
                 config_with_history = config.copy()
                 config_with_history['history'] = history
-                fn_t = dynamics.compute_fn(t, state, An_t, config_with_history)
+                fn_t = dynamics.compute_fn(t, state, An_t, F_n_t_fn, config_with_history)
                 # Calculer et stocker delta_fn pour l'historique
                 delta_fn_t = np.zeros(N)
                 for n in range(N):
@@ -304,19 +306,15 @@ def run_fps_simulation(config, state, loggers, strict=False):
             
             # b) Sorties observée/attendue, feedback
             try:
-                On_t = dynamics.compute_On(t, state, An_t, fn_t, phi_n_t, gamma_n_t) if hasattr(dynamics, 'compute_On') else An_t
-                # MODIFIÉ S1: Passer history_align à compute_En
-                En_t = dynamics.compute_En(t, state, history, config, history_align) if hasattr(dynamics, 'compute_En') else An_t
+                On_t = dynamics.compute_On(t, state, An_t, fn_t, phi_n_t, config) if hasattr(dynamics, 'compute_On') else An_t                # MODIFIÉ S1: Passer history_align à compute_En
+                En_t = dynamics.compute_En(t, state, history, config, history_align, effort_history) if hasattr(dynamics, 'compute_En') else An_t
             except Exception as e:
                 print(f"⚠️ Erreur compute On/En à t={t}: {e}")
                 On_t = An_t
                 En_t = An_t
             
             # c) Régulation/adaptation feedback
-            try:
-                # Calcul correct de Fn(t) = βn·(On(t) - En(t))·γ(t)
-                F_n_t = np.zeros(N)
-                
+            try:                
                 # NOUVEAU : Logger détaillé pour diagnostic
                 debug_log_data = {
                     't': t,
@@ -359,8 +357,7 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 
                 for n in range(N):
                     beta_n = state[n]['beta']
-                    error_n = On_t[n] - En_t[n]
-                    
+                    error_n = En_t[n] - On_t[n]                    
                     # NOUVEAU : Calculer G selon le mode configuré
                     if G_arch_mode == 'adaptive_aware':
                         # G adaptatif
@@ -386,7 +383,8 @@ def run_fps_simulation(config, state, loggers, strict=False):
                         G_archs_used.append(G_arch_used)
                     
                     # Calculer le feedback avec G_value déjà calculé
-                    F_n_t[n] = beta_n * G_value * gamma_t
+                    F_n_t_fn[n] = state[n]['beta'] * gamma_t
+                    F_n_t_An[n] = state[n]['beta'] * G_value
                     # Log G value per strate for analysis overlay
                     debug_log_data['G_values'].append(G_value)
                     debug_log_data['G_archs'].append(G_arch_used)
@@ -399,11 +397,10 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 
             except Exception as e:
                 print(f"⚠️ Erreur régulation à t={t}: {e}")
-                F_n_t = np.zeros(N)
             
             # d) Update état complet du système
             try:
-                state = dynamics.update_state(state, An_t, fn_t, phi_n_t, gamma_n_t, F_n_t) if hasattr(dynamics, 'update_state') else state
+                state = dynamics.update_state(state, An_t, fn_t, phi_n_t, gamma_n_t, F_n_t_fn, F_n_t_An) if hasattr(dynamics, 'update_state') else state
                 # Mesurer le coût CPU « dynamique pur » (du core_start à la fin de update_state)
                 cpu_step = metrics.compute_cpu_step(core_start, time.perf_counter(), N) if hasattr(metrics, 'compute_cpu_step') else 0.0
             except Exception as e:
@@ -813,7 +810,7 @@ def run_fps_simulation(config, state, loggers, strict=False):
             
             # ----------- 8. HISTORIQUE POUR ANALYSE -------------------
             history.append({
-                't': t, 'S': S_t, 'O': On_t, 'E': En_t, 'F': F_n_t,
+                't': t, 'S': S_t, 'O': On_t, 'E': En_t, 'F': F_n_t_An,
                 'gamma_n': gamma_n_t, 'An': An_t, 'fn': fn_t,
                 'C': C_t, 'A_spiral': A_spiral_t, 'entropy_S': entropy_S,
                 'delta_fn': delta_fn_t, 'S(t)': S_t, 'C(t)': C_t,

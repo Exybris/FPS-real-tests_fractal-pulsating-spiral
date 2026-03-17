@@ -231,7 +231,15 @@
     "beta": 0.6,
     "dynamic_G": true,
     "lambda_E": 0.10,
-    "epsilon_E": 0.01
+    "epsilon_E": 0.01,
+    "phi_mode": "fixed",
+    "phi_fixed_value": 1.618,
+    "phi_adaptive": {
+      "effort_low": 0.5,
+      "effort_high": 5.0,
+      "phi_min": 0.9,
+      "phi_max": 1.618
+    }
   },
   "latence": {
     "gamma_mode": "adaptive_aware",
