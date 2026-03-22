@@ -771,7 +771,7 @@ def deep_convert_for_json(obj):
 
 
 def generate_spiral_weights(N: int,
-                            c: float = 0.25, c_edge: float = 0.25,
+                            c: float = 0.25, c_edge: float = None,
                             closed: bool = False,
                             mirror: bool = False) -> List[List[float]]:
     """Generate an antisymmetric weight matrix producing a spiral-like coupling.
@@ -1024,6 +1024,62 @@ def save_coupled_discoveries(gamma_journal: Dict, regulation_state: Dict,
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(json_str)
         print(f"  ⚠️  Fichier volumineux ({size_mb:.1f}MB) sauvegardé sans division : {output_path}")
+
+
+def extract_best_pair_from_journal(gamma_journal):
+    """
+    Extrait le meilleur couple (γ, G) découvert depuis le journal gamma.
+    Porté depuis NOTEBOOK_FPS.ipynb cell 56.
+    
+    Cherche d'abord dans gamma_G_synergies (score > 4.5),
+    puis fallback sur coupled_states (performances moyennes).
+    
+    Args:
+        gamma_journal: dict du journal gamma_adaptive_aware
+        
+    Returns:
+        tuple: (best_gamma, best_G, best_score) ou (None, None, None)
+    """
+    import numpy as _np
+    
+    if not gamma_journal:
+        return (None, None, None)
+    
+    # PRIORITÉ 1: synergies exceptionnelles
+    if 'gamma_G_synergies' in gamma_journal:
+        synergies = gamma_journal['gamma_G_synergies']
+        if synergies:
+            best_state = None
+            best_score = 0
+            for state_key, state_info in synergies.items():
+                score = state_info.get('synergy_score', 0)
+                if score > best_score:
+                    best_score = score
+                    best_state = state_key
+            if best_state:
+                best_gamma, best_G = best_state
+                return (best_gamma, best_G, best_score)
+    
+    # FALLBACK: meilleur dans coupled_states
+    if 'coupled_states' in gamma_journal:
+        coupled_states = gamma_journal['coupled_states']
+        if coupled_states:
+            best_state = None
+            best_score = 0
+            for state_key, state_info in coupled_states.items():
+                score = state_info.get('synergy_score', 0)
+                if score == 0 and 'performances' in state_info:
+                    perfs = state_info['performances']
+                    if perfs:
+                        score = float(_np.mean(perfs[-5:]))
+                if score > best_score:
+                    best_score = score
+                    best_state = state_key
+            if best_state:
+                best_gamma, best_G = best_state
+                return (best_gamma, best_G, best_score)
+    
+    return (None, None, None)
 
 
 def select_representative_strata(N, config=None, n_strata_to_show=None):
