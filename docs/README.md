@@ -1,6 +1,6 @@
 # FPS - Fractal Pulsating Spiral Pipeline v3
 
-The pipeline is not yet updated, but the complete, debugged, and explanatory notebook is now here in /notebooks
+The pipeline is updated, and the complete, debugged, and explanatory notebook is in /notebooks
 
 ## 🌀 Vue d'ensemble (mise à jour et correction du readme à venir)
 
