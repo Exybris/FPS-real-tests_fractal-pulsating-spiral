@@ -1,0 +1,10 @@
+Les divergences restantes entre le pipeline et le notebook sont des effets de bord aux limites (step 0, step 19) et l'artefact de discrétisation du scoring :
+
+
+adaptive_resilience step 0 : pipeline retourne 1, notebook retourne 0 (ou vide). C'est compute_adaptive_resilience qui retourne une valeur différente quand l'historique est vide, il faudrait vérifier ce que retourne cette fonction au step 0 dans chaque version.
+
+tau_gamma : 0.2 vs 0.3 à un step, micro-différence numérique dans l'autocorrélation.
+
+autocorr_tau : 0.186 vs 0.1 au step 19 : la frontière exacte du guard >= 20, l'un calcule, l'autre prend le défaut.
+
+best_pair_score : la divergence résiduelle de ~5% entre t=8.6 et t=10.5, causée par le timing discret d'accumulation des synergy_scores
