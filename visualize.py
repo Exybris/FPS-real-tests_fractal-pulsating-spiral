@@ -669,9 +669,9 @@ def calculate_empirical_scores_notebook(history, config) :
     return scores
 
 
-def create_empirical_grid_notebook(scores_dict) -> plt.Figure:
+def create_empirical_grid(scores_dict) -> plt.Figure:
     """
-    Version notebook de create_empirical_grid.
+    Version alignée avec le notebook de create_empirical_grid.
     
     Crée une grille visuelle avec les scores 1-5.
     """
@@ -759,65 +759,6 @@ def create_empirical_grid_notebook(scores_dict) -> plt.Figure:
     plt.tight_layout()
     return fig
 
-def create_empirical_grid(scores_dict: Dict[str, int]) -> plt.Figure:
-    """
-    Crée une grille empirique avec notation visuelle (1-5).
-    Version pipeline (conservée).
-
-    Args:
-        scores_dict: dictionnaire {critère: note} avec notes de 1 à 5
-
-    Returns:
-        Figure matplotlib
-    """
-    score_config = {
-        1: {'icon': '✖', 'color': '#C73E1D', 'label': 'Rupture/Chaotique'},
-        2: {'icon': '▲', 'color': '#FF6B35', 'label': 'Instable'},
-        3: {'icon': '●', 'color': '#FFC43D', 'label': 'Fonctionnel'},
-        4: {'icon': '✔', 'color': '#87BE3F', 'label': 'Harmonieux'},
-        5: {'icon': '∞', 'color': '#2E86AB', 'label': 'FPS-idéal'}
-    }
-    criteria = ['Stabilité', 'Régulation', 'Fluidité', 'Résilience',
-                'Innovation', 'Coût CPU', 'Effort interne']
-
-    fig, ax = plt.subplots(figsize=(10, 8))
-    n_criteria = len(criteria)
-
-    for i in range(n_criteria):
-        if i % 2 == 0:
-            ax.axhspan(i - 0.5, i + 0.5, alpha=0.1, color='gray')
-
-    for i, criterion in enumerate(criteria):
-        score = scores_dict.get(criterion, 3)
-        cfg = score_config[score]
-        ax.text(0, i, criterion, fontsize=12, va='center', ha='left', fontweight='bold')
-        ax.text(0.5, i, cfg['icon'], fontsize=24, va='center', ha='center',
-                color=cfg['color'], fontweight='bold')
-        ax.barh(i, score / 5, left=0.6, height=0.6, color=cfg['color'], alpha=0.6)
-        ax.text(1.2, i, f"{score}/5", fontsize=11, va='center', ha='center')
-        ax.text(1.4, i, cfg['label'], fontsize=10, va='center', ha='left',
-                style='italic', alpha=0.8)
-
-    ax.set_xlim(-0.1, 2.5)
-    ax.set_ylim(-0.5, n_criteria - 0.5)
-    ax.set_yticks([])
-    ax.set_xticks([])
-    ax.set_title("Grille d'évaluation empirique FPS", fontsize=16,
-                 fontweight='bold', pad=20)
-
-    legend_y = -1.5
-    for score, cfg in score_config.items():
-        ax.text(0.2 + (score - 1) * 0.5, legend_y, cfg['icon'],
-                fontsize=20, ha='center', color=cfg['color'])
-        ax.text(0.2 + (score - 1) * 0.5, legend_y - 0.3, str(score),
-                fontsize=10, ha='center')
-    ax.text(0.2, legend_y - 0.6, 'Légende:', fontsize=10, fontweight='bold')
-
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-
-    plt.tight_layout()
-    return fig
 # ============== Évolution temporelle des scores empiriques ==============
 
 def plot_scores_evolution(history: List[Dict], config: Dict = None, 
@@ -924,6 +865,185 @@ def plot_scores_evolution(history: List[Dict], config: Dict = None,
     axes[-1].set_xlabel('Temps', fontsize=12, fontweight='bold')
 
     return fig, t_values, scores_dict
+
+
+def plot_fps_vs_kuramoto(fps_data: Dict[str, np.ndarray], 
+                         kuramoto_data: Dict[str, np.ndarray]) -> plt.Figure:
+    """
+    Compare les résultats FPS et Kuramoto.
+    
+    Args:
+        fps_data: données du run FPS
+        kuramoto_data: données du run Kuramoto
+    
+    Returns:
+        Figure matplotlib
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    
+    # 1. Signaux globaux
+    ax1 = axes[0, 0]
+    
+    # Gérer les tableaux potentiellement vides ou de longueurs différentes
+    if 'S(t)' in fps_data and len(fps_data['S(t)']) > 0:
+        t_fps = np.arange(len(fps_data['S(t)']))
+        ax1.plot(t_fps, fps_data['S(t)'], 'b-', linewidth=2, 
+                 label='FPS', alpha=0.8)
+    
+    if 'S(t)' in kuramoto_data and len(kuramoto_data['S(t)']) > 0:
+        t_kura = np.arange(len(kuramoto_data['S(t)']))
+        ax1.plot(t_kura, kuramoto_data['S(t)'], 'r--', linewidth=2, 
+                 label='Kuramoto', alpha=0.8)
+    
+    ax1.set_title('Signal global S(t)', fontweight='bold')
+    ax1.set_xlabel('Temps')
+    ax1.set_ylabel('Amplitude')
+    # Ajouter légende seulement s'il y a des courbes
+    handles1, labels1 = ax1.get_legend_handles_labels()
+    if handles1:
+        ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    # 2. Coefficient d'accord
+    ax2 = axes[0, 1]
+    
+    if 'C(t)' in fps_data and len(fps_data['C(t)']) > 0:
+        t_fps_c = np.arange(len(fps_data['C(t)']))
+        ax2.plot(t_fps_c, fps_data['C(t)'], 'b-', linewidth=2, 
+                 label='FPS', alpha=0.8)
+    
+    if 'C(t)' in kuramoto_data and len(kuramoto_data['C(t)']) > 0:
+        t_kura_c = np.arange(len(kuramoto_data['C(t)']))
+        ax2.plot(t_kura_c, kuramoto_data['C(t)'], 'r--', linewidth=2, 
+                 label='Kuramoto', alpha=0.8)
+    
+    ax2.set_title('Coefficient d\'accord C(t)', fontweight='bold')
+    ax2.set_xlabel('Temps')
+    ax2.set_ylabel('Coefficient')
+    ax2.set_ylim(-1.1, 1.1)
+    # Légende conditionnelle
+    handles2, labels2 = ax2.get_legend_handles_labels()
+    if handles2:
+        ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    
+    # 3. Effort/CPU
+    ax3 = axes[1, 0]
+    
+    # Compteur de courbes pour légende
+    effort_plotted = False
+    
+    if 'effort(t)' in fps_data and len(fps_data.get('effort(t)', [])) > 0:
+        t_fps_e = np.arange(len(fps_data['effort(t)']))
+        ax3.plot(t_fps_e, fps_data['effort(t)'], 'b-', linewidth=2, 
+                 label='Effort FPS', alpha=0.8)
+        effort_plotted = True
+    
+    # Ajout effort Kuramoto s'il existe
+    if 'effort(t)' in kuramoto_data and len(kuramoto_data.get('effort(t)', [])) > 0:
+        t_kura_e = np.arange(len(kuramoto_data['effort(t)']))
+        # Vérifier si les valeurs ne sont pas toutes nulles
+        if np.any(kuramoto_data['effort(t)'] != 0):
+            ax3.plot(t_kura_e, kuramoto_data['effort(t)'], 'r--', linewidth=2, 
+                     label='Effort Kuramoto', alpha=0.8)
+            effort_plotted = True
+    
+    # CPU sur axe y droit
+    if 'cpu_step(t)' in fps_data or 'cpu_step(t)' in kuramoto_data:
+        ax3_twin = ax3.twinx()
+        
+        if 'cpu_step(t)' in fps_data and len(fps_data.get('cpu_step(t)', [])) > 0:
+            t_fps_cpu = np.arange(len(fps_data['cpu_step(t)']))
+            ax3_twin.plot(t_fps_cpu, fps_data['cpu_step(t)'], 'b:', linewidth=2, 
+                          label='CPU FPS', alpha=0.6)
+        
+        if 'cpu_step(t)' in kuramoto_data and len(kuramoto_data.get('cpu_step(t)', [])) > 0:
+            t_kura_cpu = np.arange(len(kuramoto_data['cpu_step(t)']))
+            ax3_twin.plot(t_kura_cpu, kuramoto_data['cpu_step(t)'], 'r:', linewidth=2, 
+                          label='CPU Kuramoto', alpha=0.6)
+        
+        ax3_twin.set_ylabel('CPU (s)')
+        # Légende pour axe CPU aussi
+        handles_cpu, labels_cpu = ax3_twin.get_legend_handles_labels()
+        if handles_cpu:
+            ax3_twin.legend(loc='upper right')
+    
+    ax3.set_title('Effort et coût CPU', fontweight='bold')
+    ax3.set_xlabel('Temps')
+    ax3.set_ylabel('Effort')
+    # Légende effort seulement s'il y a des courbes
+    handles3, labels3 = ax3.get_legend_handles_labels()
+    if handles3:
+        ax3.legend(loc='upper left')
+    ax3.grid(True, alpha=0.3)
+    
+    # 4. Métriques comparatives
+    ax4 = axes[1, 1]
+    metrics_names = ['Mean S(t)', 'Std S(t)', 'Mean CPU', 'Final C(t)']
+    
+    # Calculer les métriques
+    fps_metrics = []
+    kura_metrics = []
+    
+    # Mean et Std S(t)
+    if 'S(t)' in fps_data and len(fps_data['S(t)']) > 0:
+        fps_metrics.extend([np.mean(fps_data['S(t)']), np.std(fps_data['S(t)'])])
+    else:
+        fps_metrics.extend([0, 0])
+    
+    if 'S(t)' in kuramoto_data and len(kuramoto_data['S(t)']) > 0:
+        kura_metrics.extend([np.mean(kuramoto_data['S(t)']), np.std(kuramoto_data['S(t)'])])
+    else:
+        kura_metrics.extend([0, 0])
+    
+    # Mean CPU - convertir en microsecondes pour visibilité
+    if 'cpu_step(t)' in fps_data and len(fps_data.get('cpu_step(t)', [])) > 0:
+        fps_cpu_mean = np.mean(fps_data['cpu_step(t)']) * 1e6  # Convertir en μs
+        fps_metrics.append(fps_cpu_mean)
+    else:
+        fps_metrics.append(0)
+    
+    if 'cpu_step(t)' in kuramoto_data and len(kuramoto_data.get('cpu_step(t)', [])) > 0:
+        kura_cpu_mean = np.mean(kuramoto_data['cpu_step(t)']) * 1e6  # Convertir en μs
+        kura_metrics.append(kura_cpu_mean)
+    else:
+        kura_metrics.append(0)
+    
+    # Mettre à jour le label pour indiquer les microsecondes
+    metrics_names[2] = 'Mean CPU (μs)'
+    
+    # Final C(t)
+    if 'C(t)' in fps_data and len(fps_data['C(t)']) > 0:
+        fps_metrics.append(fps_data['C(t)'][-1])
+    else:
+        fps_metrics.append(0)
+    
+    if 'C(t)' in kuramoto_data and len(kuramoto_data['C(t)']) > 0:
+        kura_metrics.append(kuramoto_data['C(t)'][-1])
+    else:
+        kura_metrics.append(0)
+    
+    # Barres comparatives
+    x = np.arange(len(metrics_names))
+    width = 0.35
+    
+    ax4.bar(x - width/2, fps_metrics, width, label='FPS', 
+            color=FPS_COLORS['primary'], alpha=0.8)
+    ax4.bar(x + width/2, kura_metrics, width, label='Kuramoto', 
+            color=FPS_COLORS['danger'], alpha=0.8)
+    
+    ax4.set_title('Métriques comparatives', fontweight='bold')
+    ax4.set_xticks(x)
+    ax4.set_xticklabels(metrics_names, rotation=45, ha='right')
+    ax4.legend()
+    ax4.grid(True, alpha=0.3, axis='y')
+    
+    # Titre principal
+    fig.suptitle('Comparaison FPS vs Kuramoto', fontsize=16, fontweight='bold')
+    
+    plt.tight_layout()
+    
+    return fig
 
 
 # ============== Carte de chaleur (γ, G)) ==============
@@ -1051,12 +1171,6 @@ def plot_gamma_G_heatmap(history: List[Dict], gamma_journal: Dict = None,
     best_perf = performance_matrix[best_idx]
     
     print(f"  - Meilleur état trouvé: γ={best_gamma:.1f}, G={best_G}, Score={best_perf:.2f}")
-
-    plot_gamma_G_heatmap(
-    history=results['history'],
-    gamma_journal=gamma_journal,
-    save_path=os.path.join(dirs['figures'], 'gamma_G_heatmap.png')
-    )
 
     return fig
 
@@ -2557,7 +2671,7 @@ if __name__ == "__main__":
         'Coût CPU': 2,
         'Effort interne': 3
     }
-    fig4 = create_empirical_grid_notebook(scores_test)
+    fig4 = create_empirical_grid(scores_test)
     
     print("\nTest 6 - Matrice de corrélation:")
     mapping_test = {
@@ -2716,5 +2830,331 @@ def plot_adaptive_resilience(metrics_history: Union[Dict[str, List], List[Dict]]
     
     plt.tight_layout()
     return fig
+
+# ============== SECTION 9.9 : ANALYSE CHIMÈRE ==============
+# Recherche de potentiels états chimériques ou équivalents structurels
+# Porté depuis NOTEBOOK_FPS.ipynb – cellules 98, 101, 102
+
+def theta_from_history(config: Dict, history: List[Dict]) -> np.ndarray:
+    """
+    Reconstruit les phases instantanées θ(t,n) depuis l'historique.
+    θ = 2π·cumsum(fn·dt) + phi_n_t, wrappé dans [-π, π].
+
+    Args:
+        config: configuration FPS (nécessite system.dt)
+        history: historique de simulation
+
+    Returns:
+        theta: np.ndarray shape (T, N)
+    """
+    phi = np.array([h.get('phi_n_t', []) for h in history])   # (T, N)
+    fn  = np.array([h.get('fn', []) for h in history])        # (T, N)
+    dt  = config['system']['dt']
+
+    if phi.ndim != 2 or fn.ndim != 2 or phi.shape[1] == 0:
+        raise ValueError(f"Données insuffisantes pour theta: phi={phi.shape}, fn={fn.shape}")
+
+    theta = 2 * np.pi * np.cumsum(fn * dt, axis=0) + phi
+    theta = (theta + np.pi) % (2 * np.pi) - np.pi
+    return theta
+
+
+def kuramoto_global(history: List[Dict]) -> np.ndarray:
+    """
+    Paramètre d'ordre global de Kuramoto depuis phi_n_t uniquement.
+    R_global(t) = |<e^{iφ}>_n|
+
+    Args:
+        history: historique de simulation
+
+    Returns:
+        R_global: np.ndarray shape (T,)
+    """
+    phi_n = np.array([h.get('phi_n_t', []) for h in history])
+    if phi_n.ndim != 2 or phi_n.shape[1] == 0:
+        raise ValueError(f"phi_n_t manquant ou vide: shape={phi_n.shape}")
+
+    z = np.exp(1j * phi_n)
+    R = np.abs(np.mean(z, axis=1))
+    return R
+
+
+def kuramoto_local(history: List[Dict], window: int = 5,
+                   wrap: bool = True) -> np.ndarray:
+    """
+    Paramètre d'ordre local de Kuramoto par voisinage d'indice.
+
+    Args:
+        history: historique de simulation
+        window: demi-taille du voisinage (taille = 2*window+1)
+        wrap: True = voisinage circulaire
+
+    Returns:
+        R_local: np.ndarray shape (T, N)
+    """
+    phi_n = np.array([h.get('phi_n_t', []) for h in history])
+    if phi_n.ndim != 2 or phi_n.shape[1] == 0:
+        raise ValueError(f"phi_n_t manquant ou vide: shape={phi_n.shape}")
+
+    T, N = phi_n.shape
+    z = np.exp(1j * phi_n)
+    Rloc = np.zeros((T, N), dtype=float)
+
+    for n in range(N):
+        if wrap:
+            idx = (np.arange(n - window, n + window + 1) % N)
+        else:
+            a = max(0, n - window)
+            b = min(N, n + window + 1)
+            idx = np.arange(a, b)
+        Rloc[:, n] = np.abs(np.mean(z[:, idx], axis=1))
+
+    return Rloc
+
+
+def kuramoto_global2(theta: np.ndarray) -> np.ndarray:
+    """
+    Paramètre d'ordre global depuis les phases instantanées θ.
+    R_global(t) = |<e^{iθ}>_n|
+
+    Args:
+        theta: np.ndarray shape (T, N) – phases instantanées
+
+    Returns:
+        R_global: np.ndarray shape (T,)
+    """
+    z = np.exp(1j * theta)
+    return np.abs(np.mean(z, axis=1))
+
+
+def kuramoto_local2(theta: np.ndarray, state: list,
+                    weighted: bool = True,
+                    positive_only: bool = False):
+    """
+    Paramètre d'ordre local pondéré par la matrice de couplage.
+
+    Args:
+        theta: (T, N) phases instantanées
+        state: liste des dicts strate (chacun contient 'w': array (N,))
+        weighted: pondérer par |w_ij|
+        positive_only: ne garder que les poids positifs
+
+    Returns:
+        Rloc: (T, N)
+        k_neighbors: int (nombre de voisins considérés)
+        Rloc_smooth: (T,) lissé pour la dernière strate (compat notebook)
+        incoh: (T, N) = 1 - Rloc
+        mu_t: (T,) moyenne spatiale
+        sigma_t: (T,) std spatiale
+        neigh_idx: list of arrays
+    """
+    T, N = theta.shape
+    z = np.exp(1j * theta)
+
+    # Matrice de poids (N, N)
+    W = np.array([s['w'] for s in state], dtype=float) if state else np.ones((N, N))
+    k_neighbors = N
+
+    Rloc = np.zeros((T, N), dtype=float)
+    Rloc_smooth = np.zeros(T, dtype=float)
+    neigh_idx = []
+
+    for n in range(N):
+        w_row = W[n].copy()
+        w_row[n] = 0.0
+
+        if positive_only:
+            cand = np.where(w_row > 0)[0]
+            scores = np.abs(w_row[cand])
+            order = cand[np.argsort(scores)[::-1]]
+        else:
+            scores = np.abs(w_row)
+            order = np.argsort(scores)[::-1]
+
+        order = order[order != n]
+        order = order[np.abs(w_row[order]) > 0]
+
+        idx = order[:k_neighbors] if len(order) > k_neighbors else order
+        if len(idx) == 0:
+            Rloc[:, n] = 1.0
+            neigh_idx.append(idx)
+            continue
+
+        neigh_idx.append(idx)
+
+        if weighted:
+            w_vec = np.abs(w_row[idx])
+            w_vec = w_vec / (w_vec.sum() + 1e-12)
+            m = np.sum(z[:, idx] * w_vec[None, :], axis=1)
+        else:
+            m = np.mean(z[:, idx], axis=1)
+
+        Rloc[:, n] = np.abs(m)
+
+    # Lissage temporel de la dernière strate (compat notebook)
+    if N > 0:
+        kernel = np.ones(min(25, max(1, T // 4))) / min(25, max(1, T // 4))
+        Rloc_smooth = np.convolve(Rloc[:, -1], kernel, mode='same')
+
+    incoh = 1.0 - Rloc
+    mu_t = Rloc.mean(axis=1)
+    sigma_t = Rloc.std(axis=1)
+
+    return Rloc, k_neighbors, Rloc_smooth, incoh, mu_t, sigma_t, neigh_idx
+
+
+def plot_chimera_analysis(history: List[Dict], config: Dict,
+                          state: list = None,
+                          save_path: Optional[str] = None) -> Optional[plt.Figure]:
+    """
+    Visualisation complète de l'analyse chimère (section 9.9).
+
+    Produit une figure à 6 panneaux :
+      1. R_global(t) depuis phi_n_t
+      2. Heatmap R_local(t, n) depuis phi_n_t
+      3. R_global(t) depuis theta (phases instantanées complètes)
+      4. Heatmap R_local(t, n) pondéré par couplage
+      5. Incohérence moyenne dans le temps
+      6. Contraste/hétérogénéité sigma²(t)
+
+    Args:
+        history: historique de simulation
+        config: configuration FPS
+        state: état final des strates (pour matrice W) ; si None, version simplifiée
+        save_path: chemin de sauvegarde
+
+    Returns:
+        fig ou None en cas de données insuffisantes
+    """
+    # --- Vérifier que phi_n_t et fn sont présents et non vides ---
+    phi_check = [h.get('phi_n_t', []) for h in history]
+    phi_valid = [p for p in phi_check if hasattr(p, '__len__') and len(p) > 0]
+    if len(phi_valid) < 10:
+        print("⚠️ Données phi_n_t insuffisantes pour l'analyse chimère")
+        return None
+
+    print("Génération de l'analyse chimère (section 9.9)...")
+
+    fig, axes = plt.subplots(3, 2, figsize=(18, 14))
+    fig.suptitle('SECTION 9.9 — Recherche d\'États Chimériques',
+                 fontsize=16, fontweight='bold')
+
+    # ===== 1. R_global depuis phi_n_t =====
+    try:
+        Rglob = kuramoto_global(history)
+        ax = axes[0, 0]
+        ax.plot(Rglob, color='navy', linewidth=1.5)
+        ax.set_title('R_global(t) — Phases signatures φₙ', fontweight='bold')
+        ax.set_xlabel('t index')
+        ax.set_ylabel('R_global')
+        ax.set_ylim(0, 1.05)
+        ax.grid(True, alpha=0.3)
+    except Exception as e:
+        axes[0, 0].text(0.5, 0.5, f'Erreur R_global: {e}',
+                        transform=axes[0, 0].transAxes, ha='center')
+
+    # ===== 2. Heatmap R_local depuis phi_n_t =====
+    try:
+        Rloc_phi = kuramoto_local(history, window=5, wrap=True)
+        ax = axes[0, 1]
+        im = ax.imshow(Rloc_phi.T, aspect='auto', origin='lower', cmap='viridis')
+        ax.set_title('R_local(t, n) — Voisinage d\'indice', fontweight='bold')
+        ax.set_xlabel('t index')
+        ax.set_ylabel('Strate n')
+        plt.colorbar(im, ax=ax, label='R_local')
+    except Exception as e:
+        axes[0, 1].text(0.5, 0.5, f'Erreur R_local: {e}',
+                        transform=axes[0, 1].transAxes, ha='center')
+
+    # ===== 3-6. Phases instantanées theta (nécessite fn) =====
+    try:
+        theta = theta_from_history(config, history)
+        T_steps, N = theta.shape
+
+        # 3. R_global depuis theta
+        Rglob2 = kuramoto_global2(theta)
+        ax = axes[1, 0]
+        ax.plot(Rglob2, color='darkred', linewidth=1.5)
+        ax.set_title('R_global(t) — Phases instantanées θ', fontweight='bold')
+        ax.set_xlabel('t index')
+        ax.set_ylabel('R_global')
+        ax.set_ylim(0, 1.05)
+        ax.grid(True, alpha=0.3)
+
+        # 4. Heatmap R_local pondéré
+        if state is not None and len(state) == N:
+            Rloc, k_n, Rloc_sm, incoh, mu_t, sigma_t, neigh = kuramoto_local2(
+                theta, state, weighted=True, positive_only=False
+            )
+        else:
+            # Fallback: utiliser kuramoto_local classique sur theta
+            phi_fake_hist = [{'phi_n_t': theta[i]} for i in range(T_steps)]
+            Rloc = kuramoto_local(phi_fake_hist, window=5, wrap=True)
+            incoh = 1.0 - Rloc
+            mu_t = Rloc.mean(axis=1)
+            sigma_t = Rloc.std(axis=1)
+
+        ax = axes[1, 1]
+        im2 = ax.imshow(Rloc.T, aspect='auto', origin='lower', cmap='viridis')
+        ax.set_title('R_local(t, n) — Pondéré par couplage W', fontweight='bold')
+        ax.set_xlabel('t index')
+        ax.set_ylabel('Strate n')
+        plt.colorbar(im2, ax=ax, label='R_local')
+
+        # 5. Incohérence moyenne
+        incoh_mean_t = incoh.mean(axis=1)
+        ax = axes[2, 0]
+        ax.plot(incoh_mean_t, color='crimson', linewidth=1.5)
+        ax.set_title('Incohérence moyenne(t)', fontweight='bold')
+        ax.set_xlabel('t index')
+        ax.set_ylabel('Incohérence')
+        ax.set_ylim(0, 1.05)
+        ax.grid(True, alpha=0.3)
+
+        # 6. Contraste sigma²(t) — hétérogénéité spatiale
+        ax = axes[2, 1]
+        ax.plot(sigma_t, color='darkorange', linewidth=1.5)
+        ax.set_title('Hétérogénéité σ(t) — Contraste chimère', fontweight='bold')
+        ax.set_xlabel('t index')
+        ax.set_ylabel('σ(t)')
+        ax.set_ylim(0, max(0.01, sigma_t.max() * 1.2) if len(sigma_t) > 0 else 1)
+        ax.grid(True, alpha=0.3)
+
+        # Diagnostic textuel
+        mean_sigma = np.mean(sigma_t) if len(sigma_t) > 0 else 0
+        max_sigma = np.max(sigma_t) if len(sigma_t) > 0 else 0
+        mean_Rglob = np.mean(Rglob2) if len(Rglob2) > 0 else 0
+        mean_incoh = np.mean(incoh_mean_t) if len(incoh_mean_t) > 0 else 0
+
+        diag_text = (
+            f"Diagnostic chimère:\n"
+            f"  R_global moyen = {mean_Rglob:.4f}\n"
+            f"  Incohérence moyenne = {mean_incoh:.4f}\n"
+            f"  σ moyen = {mean_sigma:.4f} | max = {max_sigma:.4f}\n"
+        )
+        if mean_sigma > 0.1 and mean_Rglob < 0.9:
+            diag_text += "  → Signature chimère possible !"
+        elif mean_sigma < 0.01:
+            diag_text += "  → Pas de chimère détectée (homogène)"
+        else:
+            diag_text += "  → Zone intermédiaire — à investiguer"
+
+        print(diag_text)
+
+    except Exception as e:
+        print(f"⚠️ Erreur analyse theta: {e}")
+        for ax in [axes[1, 0], axes[1, 1], axes[2, 0], axes[2, 1]]:
+            ax.text(0.5, 0.5, f'Données theta insuffisantes\n{e}',
+                    transform=ax.transAxes, ha='center', va='center')
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"✅ Analyse chimère sauvegardée: {save_path}")
+
+    plt.close(fig)
+    return fig
+
 
 # Gepetto & Claude & Andréa Gadal 🌀
