@@ -10,7 +10,7 @@ Le notebook de référence complet se trouve dans `/notebooks`. Le pipeline repr
 
 La FPS est un système cybernétique oscillatoire fondé sur un réseau d'oscillateurs adaptatifs métastables dotés d'une régulation endogène. Elle se situe entre les modèles descriptifs (Kuramoto) et prescriptifs (contrôleur PID) en simulant un système qui s'auto-régule autour de sept métriques de performance sur un signal non-stationnaire. L'hypothèse centrale est que *les systèmes les plus efficaces sont structurellement considérés et considérants*, une régulation parcimonieuse et contextuelle peut améliorer la performance en réduisant les oscillations inutiles.
 
-Le système repose sur une séparation **perception spécialiste / action généraliste** : le signal global O(t) (somme des oscillateurs) sert d'observable unique pour l'évaluation multi-métriques et la construction de l'état cible émergent E(t). Un prior perceptif S(t) — sélectionné selon le déficit dominant parmi les scores calculés sur O(t) — fournit une vue filtrée sur laquelle γ(t) et G(x) ajustent la régulation. Cette indirection (O → scores → S → métriques → γ, G → feedback) préserve l'émergence tout en rendant la régulation pertinente.
+Le système repose sur une séparation **perception spécialiste / action généraliste** : le signal global O(t) (somme des oscillateurs) sert d'observable unique pour l'évaluation multi-métriques et la construction de l'état cible émergent E(t). Un prior perceptif S(t) (sélectionné selon le déficit dominant parmi les scores calculés sur O(t) ) fournit une vue filtrée sur laquelle γ(t) et G(x) ajustent la régulation. Cette indirection (O → scores → S → métriques → γ, G → feedback) préserve l'émergence tout en rendant la régulation pertinente.
 
 ---
 
