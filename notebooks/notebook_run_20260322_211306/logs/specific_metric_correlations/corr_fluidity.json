@@ -1,0 +1,64 @@
+{
+  "metadata": {
+    "target_metric": "fluidity",
+    "min_strength": 0.3,
+    "n_correlations": 6
+  },
+  "correlations": [
+    {
+      "target_metric": "fluidity",
+      "correlated_with": "best_pair_score",
+      "correlation": 0.8859040822373347,
+      "abs_correlation": 0.8859040822373347,
+      "correlation_type": "positive",
+      "strength": "strong"
+    },
+    {
+      "target_metric": "fluidity",
+      "correlated_with": "best_pair_gamma",
+      "correlation": -0.8827351180170722,
+      "abs_correlation": 0.8827351180170722,
+      "correlation_type": "negative",
+      "strength": "strong"
+    },
+    {
+      "target_metric": "fluidity",
+      "correlated_with": "mean_abs_error",
+      "correlation": 0.7002835442178919,
+      "abs_correlation": 0.7002835442178919,
+      "correlation_type": "positive",
+      "strength": "strong"
+    },
+    {
+      "target_metric": "fluidity",
+      "correlated_with": "En_mean(t)",
+      "correlation": 0.6800389098699868,
+      "abs_correlation": 0.6800389098699868,
+      "correlation_type": "positive",
+      "strength": "moderate"
+    },
+    {
+      "target_metric": "fluidity",
+      "correlated_with": "adaptive_resilience",
+      "correlation": -0.5761712058262308,
+      "abs_correlation": 0.5761712058262308,
+      "correlation_type": "negative",
+      "strength": "moderate"
+    },
+    {
+      "target_metric": "fluidity",
+      "correlated_with": "temporal_coherence",
+      "correlation": -0.3406508660125977,
+      "abs_correlation": 0.3406508660125977,
+      "correlation_type": "negative",
+      "strength": "weak"
+    }
+  ],
+  "summary": {
+    "very_strong": 0,
+    "strong": 3,
+    "moderate": 2,
+    "positive_count": 3,
+    "negative_count": 3
+  }
+}

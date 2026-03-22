@@ -1,0 +1,15 @@
+target_metric,correlated_with,correlation,abs_correlation,correlation_type,strength
+fn_mean(t),variance_d2S,0.4608145143466785,0.4608145143466785,positive,weak
+fn_mean(t),autocorr_tau,-0.45652411066568704,0.45652411066568704,negative,weak
+fn_mean(t),decorrelation_time,-0.45036704315008247,0.45036704315008247,negative,weak
+fn_mean(t),tau_S,-0.45036704315008247,0.45036704315008247,negative,weak
+fn_mean(t),std_S,0.4381094357878279,0.4381094357878279,positive,weak
+fn_mean(t),On_mean(t),0.4303778844457519,0.4303778844457519,positive,weak
+fn_mean(t),gamma,0.4299426853998172,0.4299426853998172,positive,weak
+fn_mean(t),best_pair_gamma,0.4272871222089407,0.4272871222089407,positive,weak
+fn_mean(t),gamma_mean(t),0.4270954593624125,0.4270954593624125,positive,weak
+fn_mean(t),S(t),-0.3636916308749309,0.3636916308749309,negative,weak
+fn_mean(t),E(t),0.35129691801903795,0.35129691801903795,positive,weak
+fn_mean(t),An_mean(t),0.34992224086690277,0.34992224086690277,positive,weak
+fn_mean(t),tau_f_mean,-0.32936362403317077,0.32936362403317077,negative,weak
+fn_mean(t),mean_high_effort,0.32498696749726524,0.32498696749726524,positive,weak

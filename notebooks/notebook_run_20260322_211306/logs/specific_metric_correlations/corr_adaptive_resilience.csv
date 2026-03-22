@@ -1,0 +1,4 @@
+target_metric,correlated_with,correlation,abs_correlation,correlation_type,strength
+adaptive_resilience,fluidity,-0.5761712058262308,0.5761712058262308,negative,moderate
+adaptive_resilience,mean_abs_error,-0.4498950429423365,0.4498950429423365,negative,weak
+adaptive_resilience,En_mean(t),-0.43701227622554706,0.43701227622554706,negative,weak

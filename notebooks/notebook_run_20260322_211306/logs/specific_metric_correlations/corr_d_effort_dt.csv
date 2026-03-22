@@ -1,0 +1,2 @@
+target_metric,correlated_with,correlation,abs_correlation,correlation_type,strength
+d_effort_dt,effort(t),0.670037125804586,0.670037125804586,positive,moderate

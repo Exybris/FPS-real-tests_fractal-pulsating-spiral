@@ -1,0 +1,14 @@
+target_metric,correlated_with,correlation,abs_correlation,correlation_type,strength
+entropy_S,mean_high_effort,0.5264034722330112,0.5264034722330112,positive,moderate
+entropy_S,An_mean(t),0.4990109802114997,0.4990109802114997,positive,weak
+entropy_S,E(t),0.49776196062267286,0.49776196062267286,positive,weak
+entropy_S,std_S,0.4815804495983693,0.4815804495983693,positive,weak
+entropy_S,On_mean(t),0.42168426358604494,0.42168426358604494,positive,weak
+entropy_S,variance_d2S,0.41624159443482994,0.41624159443482994,positive,weak
+entropy_S,best_pair_score,-0.3956176525390256,0.3956176525390256,negative,weak
+entropy_S,tau_C,-0.38975162162040833,0.38975162162040833,negative,weak
+entropy_S,C(t),0.38864632027344886,0.38864632027344886,positive,weak
+entropy_S,max_median_ratio,-0.3501899628295768,0.3501899628295768,negative,weak
+entropy_S,tau_S,-0.33505105054733936,0.33505105054733936,negative,weak
+entropy_S,decorrelation_time,-0.33505105054733936,0.33505105054733936,negative,weak
+entropy_S,autocorr_tau,-0.32668136628211747,0.32668136628211747,negative,weak

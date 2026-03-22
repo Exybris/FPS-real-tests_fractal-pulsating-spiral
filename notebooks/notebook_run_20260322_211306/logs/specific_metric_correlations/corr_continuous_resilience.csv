@@ -1,0 +1,14 @@
+target_metric,correlated_with,correlation,abs_correlation,correlation_type,strength
+continuous_resilience,temporal_coherence,-0.856051004718271,0.856051004718271,negative,strong
+continuous_resilience,best_pair_score,0.7378090825420643,0.7378090825420643,positive,strong
+continuous_resilience,An_mean(t),-0.6295952275615846,0.6295952275615846,negative,moderate
+continuous_resilience,mean_high_effort,-0.627382569971224,0.627382569971224,negative,moderate
+continuous_resilience,E(t),-0.6173306427325543,0.6173306427325543,negative,moderate
+continuous_resilience,std_S,-0.5634120893385335,0.5634120893385335,negative,moderate
+continuous_resilience,En_mean(t),0.4833358584990813,0.4833358584990813,positive,weak
+continuous_resilience,mean_abs_error,0.4515109860028587,0.4515109860028587,positive,weak
+continuous_resilience,On_mean(t),-0.3984562450547893,0.3984562450547893,negative,weak
+continuous_resilience,variance_d2S,-0.35867163334408575,0.35867163334408575,negative,weak
+continuous_resilience,tau_f_mean,-0.33168131166521525,0.33168131166521525,negative,weak
+continuous_resilience,best_pair_gamma,-0.31933235565527923,0.31933235565527923,negative,weak
+continuous_resilience,tau_A_mean,-0.3179034899034719,0.3179034899034719,negative,weak

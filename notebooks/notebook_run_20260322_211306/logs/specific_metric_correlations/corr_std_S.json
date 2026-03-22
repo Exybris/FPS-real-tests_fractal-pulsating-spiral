@@ -1,0 +1,176 @@
+{
+  "metadata": {
+    "target_metric": "std_S",
+    "min_strength": 0.3,
+    "n_correlations": 20
+  },
+  "correlations": [
+    {
+      "target_metric": "std_S",
+      "correlated_with": "best_pair_score",
+      "correlation": -0.9326656807418373,
+      "abs_correlation": 0.9326656807418373,
+      "correlation_type": "negative",
+      "strength": "very_strong"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "E(t)",
+      "correlation": 0.8979754580334498,
+      "abs_correlation": 0.8979754580334498,
+      "correlation_type": "positive",
+      "strength": "strong"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "An_mean(t)",
+      "correlation": 0.8979133207202844,
+      "abs_correlation": 0.8979133207202844,
+      "correlation_type": "positive",
+      "strength": "strong"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "mean_high_effort",
+      "correlation": 0.8926594553226083,
+      "abs_correlation": 0.8926594553226083,
+      "correlation_type": "positive",
+      "strength": "strong"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "decorrelation_time",
+      "correlation": -0.7992602811078889,
+      "abs_correlation": 0.7992602811078889,
+      "correlation_type": "negative",
+      "strength": "strong"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "tau_S",
+      "correlation": -0.7992602811078889,
+      "abs_correlation": 0.7992602811078889,
+      "correlation_type": "negative",
+      "strength": "strong"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "On_mean(t)",
+      "correlation": 0.7937006500449177,
+      "abs_correlation": 0.7937006500449177,
+      "correlation_type": "positive",
+      "strength": "strong"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "autocorr_tau",
+      "correlation": -0.7771164836456508,
+      "abs_correlation": 0.7771164836456508,
+      "correlation_type": "negative",
+      "strength": "strong"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "variance_d2S",
+      "correlation": 0.7686977938630012,
+      "abs_correlation": 0.7686977938630012,
+      "correlation_type": "positive",
+      "strength": "strong"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "tau_gamma",
+      "correlation": -0.6447853890895832,
+      "abs_correlation": 0.6447853890895832,
+      "correlation_type": "negative",
+      "strength": "moderate"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "tau_C",
+      "correlation": -0.6010853672284674,
+      "abs_correlation": 0.6010853672284674,
+      "correlation_type": "negative",
+      "strength": "moderate"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "continuous_resilience",
+      "correlation": -0.5634120893385335,
+      "abs_correlation": 0.5634120893385335,
+      "correlation_type": "negative",
+      "strength": "moderate"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "C(t)",
+      "correlation": 0.5331126221976087,
+      "abs_correlation": 0.5331126221976087,
+      "correlation_type": "positive",
+      "strength": "moderate"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "best_pair_gamma",
+      "correlation": 0.5113400825370175,
+      "abs_correlation": 0.5113400825370175,
+      "correlation_type": "positive",
+      "strength": "moderate"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "max_median_ratio",
+      "correlation": -0.4884081707683984,
+      "abs_correlation": 0.4884081707683984,
+      "correlation_type": "negative",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "entropy_S",
+      "correlation": 0.4815804495983693,
+      "abs_correlation": 0.4815804495983693,
+      "correlation_type": "positive",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "fn_mean(t)",
+      "correlation": 0.4381094357878279,
+      "abs_correlation": 0.4381094357878279,
+      "correlation_type": "positive",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "tau_f_mean",
+      "correlation": -0.40435689213566633,
+      "abs_correlation": 0.40435689213566633,
+      "correlation_type": "negative",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "gamma",
+      "correlation": 0.34361847383863525,
+      "abs_correlation": 0.34361847383863525,
+      "correlation_type": "positive",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "std_S",
+      "correlated_with": "gamma_mean(t)",
+      "correlation": 0.3340977701251207,
+      "abs_correlation": 0.3340977701251207,
+      "correlation_type": "positive",
+      "strength": "weak"
+    }
+  ],
+  "summary": {
+    "very_strong": 1,
+    "strong": 8,
+    "moderate": 5,
+    "positive_count": 11,
+    "negative_count": 9
+  }
+}

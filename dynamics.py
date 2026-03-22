@@ -200,8 +200,10 @@ def compute_An(t: float, state: List[Dict], In_t: np.ndarray, F_n_t_An: np.ndarr
                 # Amplitude finale avec enveloppe SANS G(error)
                 # An = A0 * σ(In) * env(error)
                 # G(error) sera appliqué dans S(t) en mode extended
+                F_n_clamped = np.clip(F_n_t_An[n], -0.5, 0.5)
                 An_t[n] = base_amplitude * env_factor
-                An_t[n] = An_t[n] * (1 + F_n_t_An[n])
+                An_t[n] = An_t[n] * (1 + F_n_clamped)
+                An_t[n] = max(An_t[n], 1e-6)
 
                 
             except Exception as e:
@@ -210,6 +212,16 @@ def compute_An(t: float, state: List[Dict], In_t: np.ndarray, F_n_t_An: np.ndarr
         else:
             # Mode statique classique
             An_t[n] = base_amplitude
+        # DIAG compute_An
+        if 0.05 < t < 0.15:
+            print(f"DIAG An t={t:.2f}: An_t={An_t}")
+            print(f"DIAG An t={t:.2f}: env_mode={env_mode}")
+            if env_mode == 'dynamic':
+                print(f"DIAG An t={t:.2f}: En_inside={En_t}")
+                print(f"DIAG An t={t:.2f}: On_prev={On_t_prev}")
+                for n in range(min(3, len(An_t))):
+                    base = state[n]['A0'] * (1.0 / (1.0 + np.exp(-state[n]['k'] * (In_t[n] - state[n]['x0']))))
+                    print(f"DIAG An t={t:.2f} n={n}: base={base:.10f} F_clamped={np.clip(F_n_t_An[n], -0.5, 0.5):.10f}")
     
     return An_t
 
@@ -353,14 +365,14 @@ def compute_fn(t: float, state: List[Dict], An_t: np.ndarray, F_n_t_fn: np.ndarr
                 
                 # Fréquence de base avec plasticité dynamique
 
-                fn_t[n] = f0n + delta_fn * beta_n_t + F_n_t_fn[n]
+                fn_t[n] = f0n + delta_fn * beta_n_t
                 
             except Exception as e:
                 print(f"⚠️ Erreur plasticité dynamique strate {n} à t={t}: {e}")
-                fn_t[n] = f0n + delta_fn * beta_n + F_n_t_fn[n] # Fallback sur mode statique
+                fn_t[n] = f0n + delta_fn * beta_n # Fallback sur mode statique
         else:
             # Mode statique classique
-            fn_t[n] = f0n + delta_fn * beta_n + F_n_t_fn[n]
+            fn_t[n] = f0n + delta_fn * beta_n
     
     # Appliquer la contrainte spiralée si r(t) est défini
     if r_t is not None and N > 1:
@@ -375,6 +387,12 @@ def compute_fn(t: float, state: List[Dict], An_t: np.ndarray, F_n_t_fn: np.ndarr
                 # Ajustement vers le ratio cible
                 target_fn = r_t * fn_t[n]
                 fn_t[n + 1] = fn_t[n + 1] * (1 - relaxation_factor) + target_fn * relaxation_factor
+    for n in range(N):
+        if F_n_t_fn is not None and n < len(F_n_t_fn):
+            # Limiter F_n pour éviter instabilité
+            F_n_clamped = np.clip(F_n_t_fn[n], -0.5, 0.5)
+            fn_t[n] *= (1 + F_n_clamped)
+            fn_t[n] = max(fn_t[n], 1e-6)
     
     return fn_t
 
@@ -761,7 +779,7 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
     
     # 2. CALCULER LA PERFORMANCE SYSTÈME
     recent_history = history[-50:]
-    scores = metrics.calculate_all_scores(recent_history)
+    scores = metrics.calculate_all_scores(recent_history, config)
     current_scores = scores['current']
     system_performance_score = np.mean(list(current_scores.values()))
     
@@ -792,7 +810,7 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
             if state_key not in journal['gamma_G_synergies']:
                 journal['gamma_G_synergies'][state_key] = {
                     'discovered_at': t,
-                    'score': synergy_score,
+                    'synergy_score': synergy_score,
                     'note': f'Synergie parfaite découverte : γ={state_key[0]} + G={state_key[1]}'
                 }
                 journal['breakthrough_moments'].append({
@@ -978,7 +996,7 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
         
         # Explorer les combinaisons (γ, G) non testées
         all_gamma_values = set(round(g, 1) for g in np.linspace(0.1, 1.0, 10))
-        all_G_archs = {'tanh', 'resonance', 'spiral_log', 'adaptive'}
+        all_G_archs = {'tanh', 'resonance', 'spiral_log', 'adaptive', 'adaptive_aware'}
         
         tested_combinations = set(journal['coupled_states'].keys())
         untested = [(g, arch) for g in all_gamma_values for arch in all_G_archs 
@@ -1154,22 +1172,6 @@ def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
         else:  # tanh
             params = {"lambda": 0.5 + 0.5 * gamma_current}
     
-    # SOFT PREFERENCE: si une préférence douce est définie, orienter G_arch sans l'imposer
-    prefer_arch = reg_memory.get('prefer_next_arch')
-    prefer_time = reg_memory.get('prefer_hint_time', -1)
-    if prefer_arch and prefer_arch in ['tanh', 'resonance', 'spiral_log', 'adaptive']:
-        # Respecter un petit cooldown: si dernière transition très récente, ne pas switcher brutalement
-        cooldown = 5
-        if t - reg_memory.get('last_transition_time', -1e9) >= cooldown:
-            # Blending doux: 60% choix courant, 40% préférence
-            # Implémenté comme: si different, on bascule vers prefer_arch mais on laissera la transition douce gérer la continuité
-            if prefer_arch != G_arch:
-                G_arch = prefer_arch
-                params = regulation.adapt_params_for_archetype(G_arch, gamma_current, error_magnitude)
-        # Consommer la préférence une fois lue (éviter de forcer à chaque pas)
-        reg_memory.pop('prefer_next_arch', None)
-        reg_memory.pop('prefer_hint_time', None)
-    
     # 4. VÉRIFIER L'EFFICACITÉ HISTORIQUE
     error_bucket = 'low' if error_magnitude < 0.1 else 'medium' if error_magnitude < 0.5 else 'high'
     context_key = (G_arch, gamma_bucket, error_bucket)
@@ -1249,85 +1251,8 @@ def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
     
     # Incrémenter le compteur d'utilisation
     reg_memory['preferred_G_by_gamma'][gamma_bucket][actual_G_arch] += 1
-    
-    # Après avoir décidé de G_value et G_arch_used
-    # --- Nouveau: scoring de la paire (gamma, G_arch_used) + oubli spiralé ---
-    try:
-        mem = regulation_state.get('regulation_memory', {}) if isinstance(regulation_state, dict) else {}
-        # 1) Oubli spiralé: décroissance continue de la confiance
-        phi_mode = config.get('regulation', {}).get('phi_mode', 'fixed')
-        
-        if phi_mode == 'adaptive':
-            # Récupérer effort depuis history
-            if len(history) > 0 and 'metrics' in history[-1]:
-                effort_current = history[-1]['metrics'].get('effort', 0.0)
-            else:
-                effort_current = 0.0
-            
-            if effort_history is not None and len(effort_history) > 0:
-                # Utiliser l'historique fourni (de la boucle)
-                effort_for_phi = effort_history[-20:]
-            else:
-                # Fallback : extraire de history (pour appels depuis compute_An/compute_S)
-                effort_for_phi = [
-                    h['metrics'].get('effort', 0.0) for h in history[-20:]
-                    if 'metrics' in h and 'effort' in h['metrics']
-                ]
-                if len(effort_for_phi) == 0:
-                    effort_for_phi = [0.0]
-            
-            # Calculer phi adaptatif
-            phi = compute_phi_adaptive(effort_current, effort_for_phi, config)
-        else:
-            # Mode fixe
-            phi = config.get('regulation', {}).get('phi_fixed_value', 1.618)
-    
-        base_tau = 20.0
-        tau = base_tau
-        last_decay_update = float(mem.get('last_decay_update', t))
-        dt = max(0.0, float(t) - last_decay_update)
-        if dt > 0:
-            decay = float(np.exp(-dt / max(1e-6, tau)))
-            mem['best_pair_confidence'] = float(mem.get('best_pair_confidence', 0.0)) * decay
-            mem['last_decay_update'] = float(t)
-        # 2) Évaluer et renforcer uniquement lors des pics planifiés
-        if score_pair_now and history:
-            best = mem.get('best_pair', None)
-            # Mémoïsation par t pour éviter N recalculs par step
-            if mem.get('last_scores_t', None) == float(t) and 'last_adaptive_scores' in mem:
-                adaptive_scores = mem['last_adaptive_scores']
-            else:
-                adaptive_scores = metrics.calculate_all_scores(history, config).get('current', {})
-                mem['last_scores_t'] = float(t)
-                mem['last_adaptive_scores'] = adaptive_scores
-            criteria = ['stability', 'regulation', 'fluidity', 'resilience', 'innovation', 'cpu_cost', 'effort']
-            gaps = []
-            for c in criteria:
-                s = float(adaptive_scores.get(c, 3.0))
-                gaps.append(max(0.0, 5.0 - s))
-            mean_gap = float(np.mean(gaps)) if gaps else 2.0
-            score = 5.0 - mean_gap
-            current_pair = {'gamma': float(gamma_current), 'G_arch': G_arch, 'score': float(score), 't': float(t)}
-            improved = (not best) or (score > best.get('score', -1e-9))
-            close_enough = best and (score >= best.get('score', 0.0) - 0.02)
-            if improved:
-                mem['best_pair'] = current_pair
-            # Renforcement : confiance augmente doucement
-            if improved or close_enough or mem.get('best_pair_confidence', 0.0) < 0.2:
-                conf = float(mem.get('best_pair_confidence', 0.0))
-                mem['best_pair_confidence'] = min(1.0, 0.7 * conf + 0.3)
-                mem['last_reinforce_time'] = float(t)
-            # Journal léger
-            pairs = mem.get('pairs_log', [])
-            if len(pairs) < 1000:
-                pairs.append(current_pair)
-            else:
-                pairs.pop(0); pairs.append(current_pair)
-            mem['pairs_log'] = pairs
-        regulation_state['regulation_memory'] = mem
-    except Exception:
-        pass
-    return G_value, G_arch, params
+
+    return G_value, actual_G_arch, params
 
 
 # ============== SORTIES OBSERVÉE ET ATTENDUE ==============
@@ -1387,22 +1312,25 @@ def compute_phi_adaptive(effort_current, effort_history, config):
     
     return phi
 
-def compute_En(t: float, state: List[Dict], history: List[Dict], config: Dict, 
-               history_align: List[float] = None, effort_history: List[float] = None) -> np.ndarray:
+def compute_En(t: float, state: List[Dict], history: List[Dict], config: Dict,
+               phi: float = None, history_align: List[float] = None, 
+               effort_history: List[float] = None) -> np.ndarray:
     """
     Calcule la sortie attendue (harmonique cible) pour chaque strate.
     
-    NOUVEAU S1: Attracteur inertiel avec lambda_E adaptatif
-    Eₙ(t) = (1-λ) * Eₙ(t-dt) + λ * φ * Oₙ(t-τ)
+    Attracteur inertiel : Eₙ(t) = (1-λ) * Eₙ(t-dt) + λ * φ * Oₙ(t-τ)
     
-    où λ est défini par lambda_E dans la config 
+    φ peut être fourni en argument (depuis la boucle) ou calculé en interne
+    selon phi_mode (adaptive/fixed).
 
     Args:
         t: temps actuel
         state: état des strates
         history: historique
         config: configuration
-        history_align: historique des alignements En≈On (nouveau S1)
+        phi: valeur de phi pré-calculée (si None, calculé en interne)
+        history_align: historique des alignements En≈On
+        effort_history: historique de l'effort (pour phi adaptatif)
     
     Returns:
         np.ndarray: sorties attendues
@@ -1412,9 +1340,41 @@ def compute_En(t: float, state: List[Dict], history: List[Dict], config: Dict,
     
     # Paramètres de l'attracteur inertiel
     lambda_E = config.get('regulation', {}).get('lambda_E', 0.05)
-    phi = config.get('spiral', {}).get('phi', 1.618)
+    k_spacing = config.get('regulation', {}).get('k_spacing', 0.0)
     dt = config.get('system', {}).get('dt', 0.1)
-    lambda_dyn = lambda_E
+    
+    # CALCUL DE PHI (alignement notebook)
+    if phi is None:
+        phi_mode = config.get('regulation', {}).get('phi_mode', 'fixed')
+        
+        if phi_mode == 'adaptive':
+            if len(history) > 0 and 'effort(t)' in history[-1]:
+                effort_current = history[-1].get('effort(t)', 0.0)
+            elif len(history) > 0 and 'effort(t)' in history[-1]:
+                effort_current = history[-1].get('effort(t)', 0.0)
+            else:
+                effort_current = 0.0
+            
+            if effort_history is not None and len(effort_history) > 0:
+                effort_for_phi = effort_history[-20:]
+            else:
+                effort_for_phi = [
+                    h.get('effort(t)', 0.0) for h in history[-20:]
+                    if 'effort(t)' in h
+                ]
+                if len(effort_for_phi) == 0:
+                    effort_for_phi = [0.0]
+            
+            phi = compute_phi_adaptive(effort_current, effort_for_phi, config)
+        else:
+            phi = config.get('regulation', {}).get('phi_fixed_value', 1.618)
+    
+    # Adapter lambda selon le nombre d'alignements (si k_spacing > 0)
+    if history_align is not None and k_spacing > 0:
+        n_alignments = len(history_align)
+        lambda_dyn = lambda_E / (1 + k_spacing * n_alignments)
+    else:
+        lambda_dyn = lambda_E
     
     if len(history) > 0:
         # Récupérer les valeurs précédentes
@@ -1610,7 +1570,7 @@ def compute_Fn(t: float, beta_n: float, On_t: float, En_t: float, gamma_t: float
 # ============== SIGNAL GLOBAL ==============
 
 def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray, 
-              phi_n_array: np.ndarray, config: Dict) -> float:
+              phi_n_array: np.ndarray, config: Dict, gamma_n_t: np.ndarray = None) -> float:
     """
     Calcule le signal global du système selon FPS Paper.
     
@@ -1620,6 +1580,7 @@ def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray,
         fn_array: fréquences
         phi_n_array: phases
         config: configuration (pour modes avancés)
+        gamma_n_t: latence par strate pré-calculée (si None, recalculé en interne)
     
     Returns:
         float: signal global S(t)
@@ -1652,10 +1613,10 @@ def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray,
             # Fallback sur mode simple si pas d'état complet
             return compute_S(t, An_array, fn_array, phi_n_array, {'system': {'signal_mode': 'simple'}})
         
-        # Calculer les composants nécessaires
-        # Passer l'historique pour la modulation locale
-        gamma_n_t = compute_gamma_n(t, state, config, history=history,
-                                   An_array=An_array, fn_array=fn_array)
+        # Utiliser gamma_n_t pré-calculé si fourni, sinon recalculer
+        if gamma_n_t is None:
+            gamma_n_t = compute_gamma_n(t, state, config, history=history,
+                                       An_array=An_array, fn_array=fn_array)
         En_t = compute_En(t, state, history, config)
         On_t = compute_On(t, state, An_array, fn_array, phi_n_array, config)
         

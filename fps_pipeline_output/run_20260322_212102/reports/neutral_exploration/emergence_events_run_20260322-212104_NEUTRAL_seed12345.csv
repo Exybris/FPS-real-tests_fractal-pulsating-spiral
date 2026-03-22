@@ -1,0 +1,15 @@
+event_type,t_start,t_end,metric,value,severity
+anomaly,212,214,S(t),4.993529,medium
+anomaly,216,219,S(t),5.011427,medium
+anomaly,217,219,S(t),4.630589,medium
+anomaly,437,439,S(t),4.993529,medium
+anomaly,441,444,S(t),5.011427,medium
+anomaly,442,444,S(t),4.630589,medium
+harmonic_emergence,150,243,S(t),1,low
+harmonic_emergence,170,263,S(t),2,medium
+harmonic_emergence,200,293,S(t),1,low
+harmonic_emergence,220,313,S(t),2,medium
+harmonic_emergence,230,323,S(t),1,low
+harmonic_emergence,360,453,S(t),1,low
+harmonic_emergence,370,463,S(t),1,low
+harmonic_emergence,400,493,S(t),2,medium

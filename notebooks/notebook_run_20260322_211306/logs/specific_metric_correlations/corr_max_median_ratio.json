@@ -1,0 +1,152 @@
+{
+  "metadata": {
+    "target_metric": "max_median_ratio",
+    "min_strength": 0.3,
+    "n_correlations": 17
+  },
+  "correlations": [
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "tau_C",
+      "correlation": 0.975662286387517,
+      "abs_correlation": 0.975662286387517,
+      "correlation_type": "positive",
+      "strength": "very_strong"
+    },
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "C(t)",
+      "correlation": -0.9537009748146101,
+      "abs_correlation": 0.9537009748146101,
+      "correlation_type": "negative",
+      "strength": "very_strong"
+    },
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "mean_high_effort",
+      "correlation": -0.6461562138172823,
+      "abs_correlation": 0.6461562138172823,
+      "correlation_type": "negative",
+      "strength": "moderate"
+    },
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "tau_gamma",
+      "correlation": 0.5895845114303211,
+      "abs_correlation": 0.5895845114303211,
+      "correlation_type": "positive",
+      "strength": "moderate"
+    },
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "E(t)",
+      "correlation": -0.5420494975473639,
+      "abs_correlation": 0.5420494975473639,
+      "correlation_type": "negative",
+      "strength": "moderate"
+    },
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "An_mean(t)",
+      "correlation": -0.537872191621026,
+      "abs_correlation": 0.537872191621026,
+      "correlation_type": "negative",
+      "strength": "moderate"
+    },
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "best_pair_score",
+      "correlation": 0.5102635452838258,
+      "abs_correlation": 0.5102635452838258,
+      "correlation_type": "positive",
+      "strength": "moderate"
+    },
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "tau_S",
+      "correlation": 0.49861779557950303,
+      "abs_correlation": 0.49861779557950303,
+      "correlation_type": "positive",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "decorrelation_time",
+      "correlation": 0.49861779557950303,
+      "abs_correlation": 0.49861779557950303,
+      "correlation_type": "positive",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "std_S",
+      "correlation": -0.4884081707683984,
+      "abs_correlation": 0.4884081707683984,
+      "correlation_type": "negative",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "autocorr_tau",
+      "correlation": 0.47774167325676736,
+      "abs_correlation": 0.47774167325676736,
+      "correlation_type": "positive",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "On_mean(t)",
+      "correlation": -0.4077107204655219,
+      "abs_correlation": 0.4077107204655219,
+      "correlation_type": "negative",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "entropy_S",
+      "correlation": -0.3501899628295768,
+      "abs_correlation": 0.3501899628295768,
+      "correlation_type": "negative",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "variance_d2S",
+      "correlation": -0.3491212244706242,
+      "abs_correlation": 0.3491212244706242,
+      "correlation_type": "negative",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "tau_f_mean",
+      "correlation": 0.3308080683179187,
+      "abs_correlation": 0.3308080683179187,
+      "correlation_type": "positive",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "mean_abs_error",
+      "correlation": -0.32582390048582444,
+      "abs_correlation": 0.32582390048582444,
+      "correlation_type": "negative",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "max_median_ratio",
+      "correlated_with": "En_mean(t)",
+      "correlation": -0.3024114658919472,
+      "abs_correlation": 0.3024114658919472,
+      "correlation_type": "negative",
+      "strength": "weak"
+    }
+  ],
+  "summary": {
+    "very_strong": 2,
+    "strong": 0,
+    "moderate": 5,
+    "positive_count": 7,
+    "negative_count": 10
+  }
+}

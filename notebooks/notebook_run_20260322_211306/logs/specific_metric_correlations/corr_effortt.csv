@@ -1,0 +1,8 @@
+target_metric,correlated_with,correlation,abs_correlation,correlation_type,strength
+effort(t),best_pair_score,-0.8248429008263557,0.8248429008263557,negative,strong
+effort(t),best_pair_gamma,0.8128171547420477,0.8128171547420477,positive,strong
+effort(t),d_effort_dt,0.670037125804586,0.670037125804586,positive,moderate
+effort(t),variance_d2S,0.33408804556279326,0.33408804556279326,positive,weak
+effort(t),autocorr_tau,-0.3113156868365432,0.3113156868365432,negative,weak
+effort(t),decorrelation_time,-0.30759736412624267,0.30759736412624267,negative,weak
+effort(t),tau_S,-0.30759736412624267,0.30759736412624267,negative,weak

@@ -1,0 +1,304 @@
+{
+  "system": {
+    "N": 10,
+    "T": 50,
+    "dt": 0.1,
+    "seed": 12346,
+    "mode": "FPS",
+    "signal_mode": "extended",
+    "max_history_size": 100000,
+    "logging": {
+      "level": "INFO",
+      "output": "csv",
+      "log_metrics": [
+        "t",
+        "S(t)",
+        "C(t)",
+        "A_spiral(t)",
+        "E(t)",
+        "L(t)",
+        "cpu_step(t)",
+        "effort(t)",
+        "An_mean(t)",
+        "fn_mean(t)",
+        "variance_d2S",
+        "fluidity",
+        "entropy_S",
+        "mean_abs_error",
+        "mean_high_effort",
+        "d_effort_dt",
+        "t_retour",
+        "max_median_ratio",
+        "continuous_resilience",
+        "adaptive_resilience",
+        "temporal_coherence",
+        "tau_S",
+        "tau_gamma",
+        "tau_C",
+        "effort_status",
+        "En_mean(t)",
+        "On_mean(t)",
+        "gamma",
+        "gamma_mean(t)",
+        "G_arch_used",
+        "In_mean(t)",
+        "best_pair_gamma",
+        "best_pair_G",
+        "best_pair_score",
+        "tau_A_mean",
+        "tau_f_mean",
+        "decorrelation_time",
+        "autocorr_tau"
+      ],
+      "log_stratum": true,
+      "log_plus": true
+    },
+    "input": {
+      "mode": "classic",
+      "baseline": {
+        "offset_mode": "static",
+        "offset": 0.1,
+        "offset_adaptive": {
+          "target_sigma": 0.5,
+          "k_A": 0.01,
+          "min": 0.05,
+          "max": 0.5,
+          "window": 20,
+          "initial": 0.1
+        },
+        "gain_mode": "static",
+        "gain": 1.0,
+        "gain_adaptive": {
+          "target_range": 2.0,
+          "k_G": 0.05,
+          "min": 0.1,
+          "max": 2.0,
+          "window": 10,
+          "initial": 1.0
+        }
+      },
+      "phased_config": {},
+      "scale": 1.2,
+      "perturbations": [
+        {
+          "type": "none",
+          "amplitude": 2.0,
+          "t0": 0.0,
+          "freq": 100.0,
+          "weight": 1.0
+        }
+      ]
+    }
+  },
+  "coupling": {
+    "type": "spiral",
+    "c": 0.1,
+    "c_edge": null,
+    "closed": false,
+    "mirror": false
+  },
+  "strates": [],
+  "dynamic_parameters": {
+    "dynamic_phi": true,
+    "dynamic_beta": true,
+    "dynamic_alpha": false,
+    "dynamic_gamma": true,
+    "dynamic_G": true
+  },
+  "spiral": {
+    "phi": 1.618,
+    "epsilon": 0.1,
+    "omega": 0.05,
+    "theta": 0.0,
+    "signature_mode": "individual"
+  },
+  "enveloppe": {
+    "env_type": "gaussienne",
+    "env_mode": "dynamic",
+    "mu_n": 0.0,
+    "sigma_n_static": 0.2,
+    "sigma_n_dynamic": {
+      "amp": 0.1,
+      "freq": 0.3,
+      "offset": 0.1,
+      "T": 50
+    }
+  },
+  "latence": {
+    "gamma_mode": "adaptive_aware",
+    "gamma_static_value": 1.0,
+    "gamma_dynamic": {
+      "k": 1.0,
+      "t0": 25
+    },
+    "strata_delay": false
+  },
+  "regulation": {
+    "feedback_mode": "archetype",
+    "G_arch": "adaptive_aware",
+    "lambda": 1.7,
+    "alpha": 0.6,
+    "beta": 0.6,
+    "dynamic_G": true,
+    "lambda_E": 0.1,
+    "epsilon_E": 0.01,
+    "phi_mode": "adaptive",
+    "phi_fixed_value": 1.618,
+    "phi_adaptive": {
+      "enabled": true,
+      "effort_low": 0.5,
+      "effort_high": 5,
+      "phi_min": 0.9,
+      "phi_max": 1.618,
+      "use_chronic_detection": true
+    }
+  },
+  "modulation": {
+    "enabled": true,
+    "k_error": 0.1,
+    "k_amplitude": 0.1,
+    "k_frequency": 0.05,
+    "gamma_min": 0.5,
+    "gamma_max": 1.5,
+    "verbose": false
+  },
+  "exploration": {
+    "metrics": [
+      "S(t)",
+      "C(t)",
+      "An_mean(t)",
+      "fn_mean(t)",
+      "entropy_S",
+      "effort(t)",
+      "mean_high_effort",
+      "d_effort_dt",
+      "mean_abs_error"
+    ],
+    "window_sizes": [
+      1,
+      10,
+      100
+    ],
+    "detect_fractal_patterns": true,
+    "detect_anomalies": true,
+    "detect_harmonics": true,
+    "anomaly_threshold": 3.0,
+    "fractal_threshold": 0.8,
+    "min_duration": 3,
+    "recurrence_window": [
+      1,
+      10,
+      100
+    ]
+  },
+  "to_calibrate": {
+    "variance_d2S": 0.01,
+    "fluidity_threshold": 0.3,
+    "stability_ratio": 10,
+    "resilience": 2,
+    "entropy_S": 0.5,
+    "cpu_step_ctrl": 2,
+    "d_effort_dt": 5,
+    "effort_chronique_threshold": 1.5,
+    "effort_transitoire_threshold": 2.0,
+    "env_n": "gaussienne",
+    "gamma_n": 1.0,
+    "max_chaos_events": 5,
+    "mean_high_effort": 2,
+    "sigma_n": 0.1,
+    "t_retour": 1
+  },
+  "adaptive_windows": {
+    "exploration": {
+      "target_percent": 0.1,
+      "min_absolute": 30,
+      "max_percent": 0.25
+    },
+    "gamma_adaptation": {
+      "target_percent": 0.1,
+      "min_absolute": 50,
+      "max_percent": 0.2
+    },
+    "G_effectiveness": {
+      "target_percent": 0.06,
+      "min_absolute": 30,
+      "max_percent": 0.15
+    },
+    "scoring": {
+      "immediate": {
+        "target_percent": 0.02,
+        "min_absolute": 10
+      },
+      "recent": {
+        "target_percent": 0.1,
+        "min_absolute": 30
+      },
+      "medium": {
+        "target_percent": 0.4,
+        "min_absolute": 100
+      }
+    },
+    "transition_smoothing": {
+      "target_percent": 0.02,
+      "min_absolute": 10
+    },
+    "pattern_detection": {
+      "target_percent": 0.15,
+      "min_absolute": 50
+    }
+  },
+  "temporal_regulation": {
+    "use_temporal": true,
+    "eta_mode": "adaptive",
+    "eta_value": 1.0,
+    "theta_mode": "resonant",
+    "theta_value": 1.0
+  },
+  "validation": {
+    "criteria": [
+      "fluidity",
+      "stability",
+      "resilience",
+      "innovation",
+      "regulation",
+      "cpu_cost",
+      "effort_internal",
+      "effort_transient"
+    ],
+    "alert_sigma": 3,
+    "batch_size": 5,
+    "refine_after_runs": true,
+    "auto_log_refinement": true
+  },
+  "debug": {
+    "log_detailed": true,
+    "log_interval": 10
+  },
+  "analysis": {
+    "compare_kuramoto": true,
+    "save_indiv_files": true,
+    "export_html_report": true,
+    "visualize_grid": true
+  },
+  "chimera_tests": {
+    "uniform_frequencies": {
+      "enabled": false,
+      "value": 1.0
+    },
+    "reset_frequencies_midrun": {
+      "enabled": false,
+      "t_reset": 0.5,
+      "value": 1.0,
+      "triggered": false
+    },
+    "reset_phases_midrun": {
+      "enabled": false,
+      "t_reset": 0.5,
+      "value": 0.0,
+      "triggered": false
+    }
+  },
+  "visualization": {
+    "strata_sample_percent": 0.15
+  }
+}

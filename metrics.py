@@ -1218,6 +1218,70 @@ def calculate_all_scores(recent_history: List[Dict], config: Optional[Dict] = No
     return {'current': final_scores}
 
 
+def compute_tau_parameter(history, param_name, min_samples=20):
+    """
+    Calcule le temps caractéristique d'un paramètre depuis l'historique.
+    Utilise l'autocorrélation pour estimer le temps de décorrélation.
+    """
+    if len(history) < min_samples:
+        return None
+    
+    values = []
+    for h in history[-min_samples:]:
+        val = h.get(param_name)
+        if val is None and param_name == 'An_mean(t)':
+            val = h.get('An_mean')
+        if val is None and param_name == 'fn_mean(t)':
+            val = h.get('fn_mean')
+        if val is not None:
+            values.append(val)
+    
+    if not values or len(values) < 15:
+        return None
+    
+    try:
+        values_array = np.array(values)
+        values_centered = values_array - np.mean(values_array)
+        
+        if np.std(values_centered) < 1e-10:
+            return None
+        
+        autocorr = np.correlate(values_centered, values_centered, mode='full')
+        autocorr = autocorr[len(autocorr)//2:]
+        
+        if autocorr[0] > 1e-10:
+            autocorr = autocorr / autocorr[0]
+        else:
+            return None
+        
+        positive_autocorr = np.maximum(autocorr, 0)
+        
+        if len(history) >= 2:
+            dt = history[-1]['t'] - history[-2]['t']
+        else:
+            dt = 0.1
+        
+        tau = np.sum(positive_autocorr) * dt
+        tau = min(tau, 10.0)
+        
+        return tau
+    except Exception:
+        return None
+
+
+def extract_decorrelation_metrics(temporal_coherence_val, tau_S_val):
+    """
+    Extrait les métriques de décorrélation depuis les calculs existants.
+    """
+    decorrelation_time = tau_S_val if tau_S_val is not None else None
+    
+    if temporal_coherence_val is not None and tau_S_val is not None:
+        autocorr_tau = tau_S_val * (1 + temporal_coherence_val)
+    else:
+        autocorr_tau = None
+    
+    return (decorrelation_time, autocorr_tau)
+
 # ============== EXPORT DES MÉTRIQUES ==============
 
 # ============== MÉTRIQUES DE COHÉRENCE TEMPORELLE ==============

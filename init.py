@@ -5,7 +5,102 @@ import pprint
 from datetime import datetime
 import os
 import sys
-from utils import deep_convert, generate_spiral_weights
+from utils import deep_convert, generate_spiral_weights, extract_best_pair_from_journal
+
+
+def generate_strates(N, seed=42):
+    """
+    Génère automatiquement N strates avec des paramètres équilibrés.
+    Porté depuis NOTEBOOK_FPS.ipynb cell 9.
+    
+    Même seed → mêmes strates que le notebook (reproductibilité garantie).
+    Les poids w sont des placeholders — init_strates les remplacera
+    si coupling.type = 'spiral'.
+    
+    Args:
+        N: Nombre de strates
+        seed: Graine pour reproductibilité
+        
+    Returns:
+        list: N strates avec tous les paramètres requis
+    """
+    rng = np.random.RandomState(seed)
+    
+    strates = []
+    for i in range(N):
+        A0 = rng.uniform(0.3, 0.7)
+        f_base = 0.4 + (2.0 / N) * i
+        f0 = f_base + rng.uniform(-0.2, 0.2)
+        f0 = max(0.4, min(2.4, f0))
+        phi = 0.0
+        alpha = rng.uniform(0.45, 0.7)
+        beta = rng.uniform(0.22, 0.38)
+        k = rng.uniform(1.8, 2.5)
+        x0 = rng.uniform(0.4, 0.6)
+        
+        w = []
+        for j in range(N):
+            if i == j:
+                w.append(0.0)
+            else:
+                dist = min(abs(i - j), N - abs(i - j))
+                if dist == 1:
+                    weight = rng.uniform(0.6, 0.9)
+                elif dist == 2:
+                    weight = rng.uniform(0.3, 0.6)
+                else:
+                    weight = rng.uniform(-0.9, -0.3)
+                if rng.random() < 0.3:
+                    weight = -weight
+                w.append(round(weight, 1))
+        
+        strates.append({
+            'id': i,
+            'A0': round(float(A0), 6),
+            'f0': round(float(f0), 1),
+            'phi': phi,
+            'alpha': round(float(alpha), 2),
+            'beta': round(float(beta), 2),
+            'k': round(float(k), 1),
+            'x0': round(float(x0), 2),
+            'w': w
+        })
+    
+    return strates
+
+
+def apply_chimera_init(config):
+    """
+    Applique les modifications chimériques aux strates si configuré.
+    Porté depuis NOTEBOOK_FPS.ipynb cell 12.
+    
+    Args:
+        config: Configuration FPS avec strates déjà générées
+        
+    Returns:
+        config modifiée
+    """
+    chimera_cfg = config.get('chimera_tests', {})
+    if not chimera_cfg:
+        return config
+    
+    uniform_freq_cfg = chimera_cfg.get('uniform_frequencies', {})
+    if uniform_freq_cfg.get('enabled', False):
+        target_freq = uniform_freq_cfg.get('value', 1.0)
+        strates = config.get('strates', [])
+        print(f"\n🔬 CHIMERA TEST: Initialisation uniforme des fréquences")
+        print(f"   Toutes les f₀ → {target_freq} Hz")
+        for strate in strates:
+            strate['f0'] = target_freq
+        config['strates'] = strates
+        print(f"   ✅ {len(strates)} strates modifiées")
+    
+    if 'reset_frequencies_midrun' in chimera_cfg:
+        chimera_cfg['reset_frequencies_midrun']['triggered'] = False
+    if 'reset_phases_midrun' in chimera_cfg:
+        chimera_cfg['reset_phases_midrun']['triggered'] = False
+    
+    return config
 
 # Import correct de validate_config
 sys.path.append(os.path.dirname(__file__))
@@ -83,7 +178,26 @@ def init_strates(config):
     """
     Initialise toutes les strates avec validation stricte.
     Inclut l'initialisation des paramètres dynamiques gamma_n, mu_n, sigma_n.
+    
+    Auto-génération : si len(config['strates']) != N, génère N strates
+    automatiquement avec generate_strates(N, seed), puis applique les
+    tests chimériques si configurés. Compatible notebook et pipeline.
     """
+    N = config['system']['N']
+    seed = config['system'].get('seed', 42)
+    
+    # --- AUTO-GÉNÉRATION si mismatch entre N et le nombre de strates ---
+    existing_strates = config.get('strates', [])
+    if len(existing_strates) != N:
+        print(f"🔧 Auto-génération de {N} strates (config en contient {len(existing_strates)}, seed={seed})")
+        config['strates'] = generate_strates(N, seed)
+        config['strates'] = generate_strates(N, seed)
+        print(f"DIAG init_strates: seed={seed}, N={N}")
+        print(f"DIAG init_strates: betas={[s['beta'] for s in config['strates']]}")
+        print(f"DIAG init_strates: A0s={[s['A0'] for s in config['strates']]}")
+        config = apply_chimera_init(config)
+        print(f"   ✅ {N} strates générées et injectées dans la config")
+    
     dynamic_params = config.get("dynamic_parameters", {})
     latence_config = config.get("latence", {})
     enveloppe_config = config.get("enveloppe", {})
@@ -91,11 +205,12 @@ def init_strates(config):
     strates = []
     weight_errors = []
     
-    # ----- NOUVEAU : génération automatique des poids spiralés -----
+    # ----- Génération automatique des poids spiralés -----
     coupling_cfg = config.get("coupling", {})
     coupling_type = str(coupling_cfg.get("type", "")).lower()
     spiral_mode = coupling_type in {"spiral", "ring"}
     mirror_mode = coupling_cfg.get("mirror", False)
+    c_edge = coupling_cfg.get("c_edge", None)
     W_spiral = None
     if spiral_mode:
         N_total = len(config["strates"])
@@ -106,7 +221,8 @@ def init_strates(config):
         else:
             closed_val = coupling_cfg.get("closed", False)
 
-        W_spiral = generate_spiral_weights(N_total, c=c_val, closed=closed_val, mirror=mirror_mode)
+        W_spiral = generate_spiral_weights(N_total, c=c_val, closed=closed_val, mirror=mirror_mode,
+                                            c_edge=c_edge)
         print(f"🔄 Génération matrice de poids '{coupling_type}' (c={c_val}, closed={closed_val}, mirror={mirror_mode})")
     
     for i, s in enumerate(config['strates']):
@@ -212,6 +328,9 @@ def init_strates(config):
             f.write(f"{datetime.now()} - Validation des poids:\n")
             for err in weight_errors:
                 f.write(f"  {err}\n")
+        
+        print(f"DIAG init_strates FIN: betas={[s['beta'] for s in strates]}")
+        print(f"DIAG init_strates FIN: A0s={[s['A0'] for s in strates]}")
     
     return deep_convert(strates)
 

@@ -1,0 +1,88 @@
+{
+  "metadata": {
+    "target_metric": "S(t)",
+    "min_strength": 0.3,
+    "n_correlations": 9
+  },
+  "correlations": [
+    {
+      "target_metric": "S(t)",
+      "correlated_with": "variance_d2S",
+      "correlation": -0.5840325383317452,
+      "abs_correlation": 0.5840325383317452,
+      "correlation_type": "negative",
+      "strength": "moderate"
+    },
+    {
+      "target_metric": "S(t)",
+      "correlated_with": "gamma",
+      "correlation": -0.5385817556826719,
+      "abs_correlation": 0.5385817556826719,
+      "correlation_type": "negative",
+      "strength": "moderate"
+    },
+    {
+      "target_metric": "S(t)",
+      "correlated_with": "gamma_mean(t)",
+      "correlation": -0.5232813257477232,
+      "abs_correlation": 0.5232813257477232,
+      "correlation_type": "negative",
+      "strength": "moderate"
+    },
+    {
+      "target_metric": "S(t)",
+      "correlated_with": "fn_mean(t)",
+      "correlation": -0.3636916308749309,
+      "abs_correlation": 0.3636916308749309,
+      "correlation_type": "negative",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "S(t)",
+      "correlated_with": "tau_f_mean",
+      "correlation": 0.34445405647282484,
+      "abs_correlation": 0.34445405647282484,
+      "correlation_type": "positive",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "S(t)",
+      "correlated_with": "best_pair_gamma",
+      "correlation": -0.34059089193060316,
+      "abs_correlation": 0.34059089193060316,
+      "correlation_type": "negative",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "S(t)",
+      "correlated_with": "An_mean(t)",
+      "correlation": -0.3192484271961401,
+      "abs_correlation": 0.3192484271961401,
+      "correlation_type": "negative",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "S(t)",
+      "correlated_with": "E(t)",
+      "correlation": -0.31883548366253567,
+      "abs_correlation": 0.31883548366253567,
+      "correlation_type": "negative",
+      "strength": "weak"
+    },
+    {
+      "target_metric": "S(t)",
+      "correlated_with": "autocorr_tau",
+      "correlation": 0.3041136449997761,
+      "abs_correlation": 0.3041136449997761,
+      "correlation_type": "positive",
+      "strength": "weak"
+    }
+  ],
+  "summary": {
+    "very_strong": 0,
+    "strong": 0,
+    "moderate": 3,
+    "positive_count": 2,
+    "negative_count": 7
+  }
+}

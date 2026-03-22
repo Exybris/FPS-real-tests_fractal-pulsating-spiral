@@ -1,0 +1,15 @@
+target_metric,correlated_with,correlation,abs_correlation,correlation_type,strength
+mean_abs_error,En_mean(t),0.9919105387212405,0.9919105387212405,positive,very_strong
+mean_abs_error,fluidity,0.7002835442178919,0.7002835442178919,positive,strong
+mean_abs_error,best_pair_score,-0.6877483421988262,0.6877483421988262,negative,moderate
+mean_abs_error,tau_f_mean,-0.6731945962055965,0.6731945962055965,negative,moderate
+mean_abs_error,temporal_coherence,-0.6493821554299872,0.6493821554299872,negative,moderate
+mean_abs_error,tau_gamma,-0.6228565452013491,0.6228565452013491,negative,moderate
+mean_abs_error,autocorr_tau,-0.5634491638899836,0.5634491638899836,negative,moderate
+mean_abs_error,tau_S,-0.5527961605146685,0.5527961605146685,negative,moderate
+mean_abs_error,decorrelation_time,-0.5527961605146685,0.5527961605146685,negative,moderate
+mean_abs_error,continuous_resilience,0.4515109860028587,0.4515109860028587,positive,weak
+mean_abs_error,adaptive_resilience,-0.4498950429423365,0.4498950429423365,negative,weak
+mean_abs_error,tau_A_mean,-0.35019651233721205,0.35019651233721205,negative,weak
+mean_abs_error,tau_C,-0.35016376244556935,0.35016376244556935,negative,weak
+mean_abs_error,max_median_ratio,-0.32582390048582444,0.32582390048582444,negative,weak

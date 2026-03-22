@@ -1,0 +1,421 @@
+{
+  "system": {
+    "N": 10,
+    "T": 50,
+    "dt": 0.1,
+    "seed": 12345,
+    "mode": "FPS",
+    "signal_mode": "extended",
+    "max_history_size": 100000,
+    "logging": {
+      "level": "INFO",
+      "output": "csv",
+      "log_metrics": [
+        "t",
+        "S(t)",
+        "C(t)",
+        "A_spiral(t)",
+        "E(t)",
+        "L(t)",
+        "cpu_step(t)",
+        "effort(t)",
+        "An_mean(t)",
+        "fn_mean(t)",
+        "variance_d2S",
+        "fluidity",
+        "entropy_S",
+        "mean_abs_error",
+        "mean_high_effort",
+        "d_effort_dt",
+        "t_retour",
+        "max_median_ratio",
+        "continuous_resilience",
+        "adaptive_resilience",
+        "temporal_coherence",
+        "tau_S",
+        "tau_gamma",
+        "tau_C",
+        "effort_status",
+        "phi",
+        "En_mean(t)",
+        "On_mean(t)",
+        "gamma",
+        "gamma_mean(t)",
+        "G_arch_used",
+        "In_mean(t)",
+        "best_pair_gamma",
+        "best_pair_G",
+        "best_pair_score",
+        "tau_A_mean",
+        "tau_f_mean",
+        "decorrelation_time",
+        "autocorr_tau",
+        "std_S"
+      ],
+      "log_stratum": true,
+      "log_plus": true
+    },
+    "input": {
+      "mode": "classic",
+      "baseline": {
+        "offset_mode": "static",
+        "offset": 0.1,
+        "gain_mode": "static",
+        "gain": 1.0
+      },
+      "phased_config": {},
+      "scale": 1.2,
+      "perturbations": [
+        {
+          "type": "none",
+          "amplitude": 2.0,
+          "t0": 0.0,
+          "freq": 100.0,
+          "weight": 1.0
+        }
+      ]
+    }
+  },
+  "coupling": {
+    "type": "spiral",
+    "c": 0.1,
+    "c_edge": null,
+    "closed": false,
+    "mirror": false
+  },
+  "strates": [
+    {
+      "id": 0,
+      "A0": 0.671846,
+      "f0": 0.4,
+      "phi": 0.0,
+      "alpha": 0.5,
+      "beta": 0.25,
+      "k": 2.2,
+      "x0": 0.52,
+      "w": [
+        0.0,
+        0.9,
+        0.5,
+        -0.5,
+        0.9,
+        -0.7,
+        -0.4,
+        -0.3,
+        0.5,
+        0.7
+      ]
+    },
+    {
+      "id": 1,
+      "A0": 0.475858,
+      "f0": 0.7,
+      "phi": 0.0,
+      "alpha": 0.7,
+      "beta": 0.33,
+      "k": 2.4,
+      "x0": 0.43,
+      "w": [
+        0.6,
+        0.0,
+        -0.9,
+        0.4,
+        0.5,
+        -0.4,
+        -0.4,
+        0.4,
+        0.8,
+        0.4
+      ]
+    },
+    {
+      "id": 2,
+      "A0": 0.583804,
+      "f0": 0.7,
+      "phi": 0.0,
+      "alpha": 0.58,
+      "beta": 0.25,
+      "k": 2.3,
+      "x0": 0.59,
+      "w": [
+        -0.5,
+        0.7,
+        0.0,
+        0.9,
+        0.4,
+        0.6,
+        -0.8,
+        -0.4,
+        -0.3,
+        -0.4
+      ]
+    },
+    {
+      "id": 3,
+      "A0": 0.440647,
+      "f0": 1.1,
+      "phi": 0.0,
+      "alpha": 0.58,
+      "beta": 0.26,
+      "k": 2.0,
+      "x0": 0.56,
+      "w": [
+        -0.6,
+        0.6,
+        0.7,
+        0.0,
+        0.7,
+        0.4,
+        -0.5,
+        -0.4,
+        -0.4,
+        -0.8
+      ]
+    },
+    {
+      "id": 4,
+      "A0": 0.434422,
+      "f0": 1.3,
+      "phi": 0.0,
+      "alpha": 0.67,
+      "beta": 0.23,
+      "k": 1.9,
+      "x0": 0.46,
+      "w": [
+        0.5,
+        -0.8,
+        0.5,
+        0.8,
+        0.0,
+        -0.8,
+        0.6,
+        -0.9,
+        -0.5,
+        -0.5
+      ]
+    },
+    {
+      "id": 5,
+      "A0": 0.670596,
+      "f0": 1.4,
+      "phi": 0.0,
+      "alpha": 0.47,
+      "beta": 0.31,
+      "k": 2.2,
+      "x0": 0.59,
+      "w": [
+        0.7,
+        -0.8,
+        0.6,
+        0.5,
+        0.8,
+        0.0,
+        0.6,
+        -0.5,
+        -0.7,
+        0.7
+      ]
+    },
+    {
+      "id": 6,
+      "A0": 0.370922,
+      "f0": 1.7,
+      "phi": 0.0,
+      "alpha": 0.52,
+      "beta": 0.31,
+      "k": 2.1,
+      "x0": 0.48,
+      "w": [
+        -0.4,
+        0.7,
+        -0.8,
+        -0.4,
+        0.3,
+        -0.7,
+        0.0,
+        0.7,
+        0.5,
+        -0.4
+      ]
+    },
+    {
+      "id": 7,
+      "A0": 0.46028,
+      "f0": 1.9,
+      "phi": 0.0,
+      "alpha": 0.67,
+      "beta": 0.26,
+      "k": 2.5,
+      "x0": 0.57,
+      "w": [
+        -0.5,
+        -0.4,
+        0.3,
+        -0.9,
+        0.3,
+        0.4,
+        0.6,
+        0.0,
+        -0.7,
+        0.5
+      ]
+    },
+    {
+      "id": 8,
+      "A0": 0.359828,
+      "f0": 1.8,
+      "phi": 0.0,
+      "alpha": 0.64,
+      "beta": 0.26,
+      "k": 2.0,
+      "x0": 0.49,
+      "w": [
+        0.4,
+        -0.4,
+        -0.6,
+        0.7,
+        -0.6,
+        -0.5,
+        0.6,
+        0.8,
+        0.0,
+        0.7
+      ]
+    },
+    {
+      "id": 9,
+      "A0": 0.388752,
+      "f0": 2.3,
+      "phi": 0.0,
+      "alpha": 0.55,
+      "beta": 0.25,
+      "k": 2.0,
+      "x0": 0.45,
+      "w": [
+        0.6,
+        -0.4,
+        -0.5,
+        -0.5,
+        0.7,
+        0.8,
+        0.9,
+        -0.4,
+        0.8,
+        0.0
+      ]
+    }
+  ],
+  "dynamic_parameters": {
+    "dynamic_phi": true,
+    "dynamic_beta": true,
+    "dynamic_alpha": false,
+    "dynamic_gamma": true,
+    "dynamic_G": true
+  },
+  "spiral": {
+    "phi": 1.618,
+    "epsilon": 0.1,
+    "omega": 0.05,
+    "theta": 0.0,
+    "signature_mode": "individual"
+  },
+  "regulation": {
+    "feedback_mode": "archetype",
+    "G_arch": "adaptive_aware",
+    "lambda": 1.7,
+    "alpha": 0.6,
+    "beta": 0.6,
+    "dynamic_G": true,
+    "lambda_E": 0.1,
+    "epsilon_E": 0.01,
+    "phi_mode": "adaptive",
+    "phi_fixed_value": 1.618,
+    "phi_adaptive": {
+      "enabled": true,
+      "effort_low": 0.5,
+      "effort_high": 5,
+      "phi_min": 0.9,
+      "phi_max": 1.618,
+      "use_chronic_detection": true
+    }
+  },
+  "latence": {
+    "gamma_mode": "adaptive_aware",
+    "gamma_static_value": 1.0,
+    "gamma_dynamic": {
+      "k": 1.0,
+      "t0": 25
+    },
+    "strata_delay": false
+  },
+  "enveloppe": {
+    "env_type": "gaussienne",
+    "env_mode": "dynamic",
+    "mu_n": 0.0,
+    "sigma_n_static": 0.2,
+    "sigma_n_dynamic": {
+      "amp": 0.1,
+      "freq": 0.3,
+      "offset": 0.1,
+      "T": 50
+    }
+  },
+  "modulation": {
+    "enabled": true,
+    "k_error": 0.1,
+    "k_amplitude": 0.1,
+    "k_frequency": 0.05,
+    "gamma_min": 0.5,
+    "gamma_max": 1.5,
+    "verbose": false
+  },
+  "exploration": {
+    "metrics": [
+      "S(t)",
+      "C(t)",
+      "An_mean(t)",
+      "fn_mean(t)",
+      "entropy_S",
+      "effort(t)",
+      "mean_high_effort",
+      "d_effort_dt",
+      "mean_abs_error"
+    ],
+    "window_sizes": [
+      1,
+      10,
+      100
+    ],
+    "detect_fractal_patterns": true,
+    "detect_anomalies": true,
+    "detect_harmonics": true
+  },
+  "chimera_tests": {
+    "uniform_frequencies": {
+      "enabled": false,
+      "value": 1.0
+    },
+    "reset_frequencies_midrun": {
+      "enabled": false,
+      "t_reset": 0.5,
+      "value": 1.0,
+      "triggered": false
+    },
+    "reset_phases_midrun": {
+      "enabled": false,
+      "t_reset": 0.5,
+      "value": 0.0,
+      "triggered": false
+    }
+  },
+  "to_calibrate": {
+    "variance_d2S": 0.01,
+    "fluidity_threshold": 0.3,
+    "stability_ratio": 10,
+    "resilience": 2,
+    "entropy_S": 0.5
+  },
+  "visualization": {
+    "strata_sample_percent": 0.15
+  }
+}

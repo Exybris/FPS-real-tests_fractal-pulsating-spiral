@@ -52,7 +52,7 @@ except ImportError:
 
 # Import des modules FPS avec vérification
 FPS_MODULES = {}
-for module_name in ['validate_config', 'simulate', 'explore', 'analyze', 'visualize', 'utils']:
+for module_name in ['validate_config', 'simulate', 'explore', 'analyze', 'visualize', 'utils', 'init', 'metrics']:
     try:
         FPS_MODULES[module_name] = __import__(module_name)
         print(f"✓ Module {module_name} importé")
@@ -482,19 +482,6 @@ def generate_visualizations(results: Dict, config: Dict, dirs: Dict) -> Dict[str
             figures_paths['comparison'] = path3
             plt.close(fig3)
         
-        # 4. Grille empirique
-        print("  → Grille empirique...")
-        scores = calculate_empirical_scores(
-            fps_result.get('metrics', {}), 
-            config,
-            fps_result.get('history', [])  # NOUVEAU : historique pour fenêtres adaptatives
-        )
-        fig4 = FPS_MODULES['visualize'].create_empirical_grid(scores)
-        path4 = os.path.join(dirs['figures'], 'empirical_grid.png')
-        fig4.savefig(path4, dpi=150, bbox_inches='tight')
-        figures_paths['empirical_grid'] = path4
-        plt.close(fig4)
-        
         # 5. Matrice critères-termes
         print("  → Matrice critères-termes...")
         mapping = get_criteria_terms_mapping()
@@ -503,7 +490,244 @@ def generate_visualizations(results: Dict, config: Dict, dirs: Dict) -> Dict[str
         fig5.savefig(path5, dpi=150, bbox_inches='tight')
         figures_paths['correlation_matrix'] = path5
         plt.close(fig5)
-        
+
+        # ── Visualisations supplémentaires (fonctions history-based) ──────────
+        history = fps_result.get('history', [])
+        if history:
+
+            # 6. Signaux principaux S(t) et C(t)
+            try:
+                print("  → Signaux principaux...")
+                fig6 = FPS_MODULES['visualize'].plot_principal_signals(history)
+                path6 = os.path.join(dirs['figures'], 'principal_signals.png')
+                fig6.savefig(path6, dpi=150, bbox_inches='tight')
+                figures_paths['principal_signals'] = path6
+                plt.close(fig6)
+            except Exception as e:
+                print(f"    ⚠️ plot_principal_signals : {e}")
+
+            # 7. Amplitudes et fréquences moyennes
+            try:
+                print("  → Amplitudes & fréquences...")
+                fig7 = FPS_MODULES['visualize'].plot_amp_freq(history, config)
+                path7 = os.path.join(dirs['figures'], 'amp_freq.png')
+                fig7.savefig(path7, dpi=150, bbox_inches='tight')
+                figures_paths['amp_freq'] = path7
+                plt.close(fig7)
+            except Exception as e:
+                print(f"    ⚠️ plot_amp_freq : {e}")
+
+            # 8. Évolution temporelle des métriques brutes
+            try:
+                print("  → Métriques brutes (évolution)...")
+                path8 = os.path.join(dirs['figures'], 'metrics_evolution.png')
+                fig8 = FPS_MODULES['visualize'].plot_metrics_evolution(
+                    history, save_path=path8
+                )
+                if fig8 is not None:
+                    figures_paths['metrics_evolution'] = path8
+                    plt.close(fig8)
+            except Exception as e:
+                print(f"    ⚠️ plot_metrics_evolution : {e}")
+
+            # 9. Évolution temporelle des scores empiriques (retourne un tuple)
+            try:
+                print("  → Scores empiriques (évolution)...")
+                # calculate_all_scores est requis comme callable par plot_scores_evolution
+                _calc_fn = getattr(FPS_MODULES.get('metrics'), 'calculate_all_scores', None)
+                result_scores = FPS_MODULES['visualize'].plot_scores_evolution(
+                    history, config, calculate_all_scores=_calc_fn
+                )
+                if result_scores is not None:
+                    fig9, _, _ = result_scores
+                    path9 = os.path.join(dirs['figures'], 'scores_evolution.png')
+                    fig9.savefig(path9, dpi=150, bbox_inches='tight')
+                    figures_paths['scores_evolution'] = path9
+                    plt.close(fig9)
+            except Exception as e:
+                print(f"    ⚠️ plot_scores_evolution : {e}")
+
+            # 10. Résilience adaptative
+            try:
+                print("  → Résilience adaptative...")
+                fig10 = FPS_MODULES['visualize'].plot_adaptive_resilience(history)
+                if fig10 is not None:
+                    path10 = os.path.join(dirs['figures'], 'adaptive_resilience.png')
+                    fig10.savefig(path10, dpi=150, bbox_inches='tight')
+                    figures_paths['adaptive_resilience'] = path10
+                    plt.close(fig10)
+            except Exception as e:
+                print(f"    ⚠️ plot_adaptive_resilience : {e}")
+
+            # 11. Timeline des découvertes (γ, G)
+            try:
+                print("  → Timeline des découvertes...")
+                result_timeline = FPS_MODULES['visualize'].plot_discovery_timeline(
+                    history,
+                    gamma_journal=fps_result.get('gamma_journal')
+                )
+                if result_timeline is not None:
+                    fig11, _, _, _ = result_timeline   # (fig, t_values, breakthroughs, best_pair_scores)
+                    path11 = os.path.join(dirs['figures'], 'discovery_timeline.png')
+                    fig11.savefig(path11, dpi=150, bbox_inches='tight')
+                    figures_paths['discovery_timeline'] = path11
+                    plt.close(fig11)
+            except Exception as e:
+                print(f"    ⚠️ plot_discovery_timeline : {e}")
+
+            # 12. Matrice de corrélations inter-métriques (retourne un tuple)
+            try:
+                print("  → Corrélations inter-métriques...")
+                path12 = os.path.join(dirs['figures'], 'metric_correlations.png')
+                corr_result = FPS_MODULES['visualize'].analyze_correlations(
+                    history, save_path=path12
+                )
+                if corr_result is not None:
+                    fig12 = corr_result[0]
+                    figures_paths['metric_correlations'] = path12
+                    plt.close(fig12)
+            except Exception as e:
+                print(f"    ⚠️ analyze_correlations : {e}")
+
+            # 13. Scatter pairs
+            try:
+                print("  → Scatter pairs...")
+                _default_pairs = [
+                    ('S(t)', 'C(t)'),
+                    ('effort(t)', 'fluidity'),
+                    ('entropy_S', 'mean_abs_error'),
+                    ('An_mean(t)', 'fn_mean(t)'),
+                    ('gamma', 'adaptive_resilience'),
+                    ('effort(t)', 'mean_abs_error'),
+                ]
+                path13 = os.path.join(dirs['figures'], 'scatter_pairs.png')
+                fig13 = FPS_MODULES['visualize'].plot_scatter_pairs(
+                    history, pairs=_default_pairs, save_path=path13
+                )
+                if fig13 is not None:
+                    figures_paths['scatter_pairs'] = path13
+                    plt.close(fig13)
+            except Exception as e:
+                print(f"    ⚠️ plot_scatter_pairs : {e}")
+
+            # 14. Patterns par strate (sauvegarde en interne dans output_dir)
+            try:
+                print("  → Patterns par strate...")
+                FPS_MODULES['visualize'].visualize_stratum_patterns(
+                    history, config, output_dir=dirs['figures'], show=False
+                )
+                figures_paths['stratum_patterns'] = os.path.join(
+                    dirs['figures'], 'stratum_annulation_patterns.png'
+                )
+            except Exception as e:
+                print(f"    ⚠️ visualize_stratum_patterns : {e}")
+
+            # 15. Heatmap (γ, G) — nécessite gamma_journal, silencieux si absent
+            try:
+                print("  → Heatmap γ/G...")
+                path15 = os.path.join(dirs['figures'], 'gamma_G_heatmap.png')
+                FPS_MODULES['visualize'].plot_gamma_G_heatmap(
+                    history,
+                    gamma_journal=fps_result.get('gamma_journal'),
+                    save_path=path15
+                )
+                figures_paths['gamma_G_heatmap'] = path15
+            except Exception as e:
+                print(f"    ⚠️ plot_gamma_G_heatmap : {e}")
+
+            # 16. Diagramme de phase (extraction phi_n_t depuis history)
+            try:
+                print("  → Diagramme de phase...")
+                phi_list = [h.get('phi_n_t', []) for h in history]
+                phi_valid = [p for p in phi_list if p]
+                if phi_valid:
+                    phi_np = np.array(phi_valid).T  # shape [N_strates, T]
+                    fig16 = FPS_MODULES['visualize'].plot_phase_diagram(phi_np)
+                    path16 = os.path.join(dirs['figures'], 'phase_diagram.png')
+                    fig16.savefig(path16, dpi=150, bbox_inches='tight')
+                    figures_paths['phase_diagram'] = path16
+                    plt.close(fig16)
+            except Exception as e:
+                print(f"    ⚠️ plot_phase_diagram : {e}")
+
+            # 17. Comparaison des strates (extraction An, fn depuis history)
+            try:
+                print("  → Comparaison des strates...")
+                t_arr  = np.array([h['t'] for h in history])
+                An_list = [h.get('An', []) for h in history]
+                fn_list = [h.get('fn', []) for h in history]
+                An_valid = [a for a in An_list if a]
+                fn_valid = [f for f in fn_list if f]
+                if An_valid and fn_valid:
+                    fig17 = FPS_MODULES['visualize'].plot_strata_comparison(
+                        t_arr,
+                        np.array(An_valid).T,
+                        np.array(fn_valid).T
+                    )
+                    path17 = os.path.join(dirs['figures'], 'strata_comparison.png')
+                    fig17.savefig(path17, dpi=150, bbox_inches='tight')
+                    figures_paths['strata_comparison'] = path17
+                    plt.close(fig17)
+            except Exception as e:
+                print(f"    ⚠️ plot_strata_comparison : {e}")
+
+            # 18. Grille empirique version notebook
+            try:
+                print("  → Grille empirique (notebook)...")
+                scores_nb = FPS_MODULES['visualize'].calculate_empirical_scores_notebook(
+                    history, config
+                )
+                fig18 = FPS_MODULES['visualize'].create_empirical_grid(scores_nb)
+                path18 = os.path.join(dirs['figures'], 'empirical_grid.png')
+                fig18.savefig(path18, dpi=150, bbox_inches='tight')
+                figures_paths['empirical_grid'] = path18
+                plt.close(fig18)
+            except Exception as e:
+                print(f"    ⚠️ create_empirical_grid : {e}")
+
+            # 19. Analyse d'exploration (df depuis history)
+            try:
+                import pandas as pd
+                print("  → Exploration analysis...")
+                df_hist = pd.DataFrame(history)
+                fig19 = FPS_MODULES['visualize'].plot_exploration_analysis(df_hist)
+                if fig19 is not None:
+                    path19 = os.path.join(dirs['figures'], 'exploration_analysis.png')
+                    fig19.savefig(path19, dpi=150, bbox_inches='tight')
+                    figures_paths['exploration_analysis'] = path19
+                    plt.close(fig19)
+            except Exception as e:
+                print(f"    ⚠️ plot_exploration_analysis : {e}")
+
+            # 20-22. Métriques clés en vue détaillée
+            for _metric in ['effort(t)', 'fluidity', 'adaptive_resilience']:
+                try:
+                    print(f"  → Métrique détaillée : {_metric}...")
+                    _slug = _metric.replace('(', '').replace(')', '').replace(' ', '_')
+                    _path = os.path.join(dirs['figures'], f'metric_detail_{_slug}.png')
+                    _fig = FPS_MODULES['visualize'].plot_single_metric_detailed(
+                        history, metric_name=_metric, save_path=_path
+                    )
+                    if _fig is not None:
+                        figures_paths[f'metric_detail_{_slug}'] = _path
+                        plt.close(_fig)
+                except Exception as e:
+                    print(f"    ⚠️ plot_single_metric_detailed({_metric}) : {e}")
+
+            # 23. Analyse chimère (section 9.9) — Kuramoto local/global + hétérogénéité
+            try:
+                print("  → Analyse chimère (9.9)...")
+                path23 = os.path.join(dirs['figures'], 'chimera_analysis.png')
+                fig23 = FPS_MODULES['visualize'].plot_chimera_analysis(
+                    history, config,
+                    state=None,  # state n'est pas retourné par simulate — fallback auto
+                    save_path=path23
+                )
+                if fig23 is not None:
+                    figures_paths['chimera_analysis'] = path23
+            except Exception as e:
+                print(f"    ⚠️ plot_chimera_analysis : {e}")
+
         print(f"  ✓ {len(figures_paths)} visualisations générées")
         
     except Exception as e:

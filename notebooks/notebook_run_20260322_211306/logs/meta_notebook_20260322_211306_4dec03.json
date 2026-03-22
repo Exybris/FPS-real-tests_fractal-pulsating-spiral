@@ -1,0 +1,12 @@
+{
+  "run_id": "notebook_20260322_211306_4dec03",
+  "timestamp": "2026-03-22T21:13:06.488809",
+  "fps_version": "2.9",
+  "config_path": "notebook_run_20260322_211306/logs/config_notebook_20260322_211306_4dec03.json",
+  "system": {
+    "N": 10,
+    "T": 50,
+    "mode": "FPS",
+    "seed": 12345
+  }
+}
