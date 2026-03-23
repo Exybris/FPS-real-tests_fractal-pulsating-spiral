@@ -82,7 +82,7 @@ These are the 7 FPS metrics, detailed below.
 Amplitude An(t) is designed as a controlled energy variable, combining a smoothed input response σ(In), a focus envelope env(x,t), and a cybernetic feedback Fn(t) injecting latency γ and regulation G. A slow base A0 is updated by exponential averaging with a minimum threshold to prevent stratum extinction and stabilize metastable regimes.
 
 ```
-An(t) = A0 · σ(In(t)) · env(x,t) · Fn_A(t)
+An(t) = A0 · σ(In(t)) · env(x,t) · (1 + Fn_A(t))
 ```
 
 - A0: initial amplitude
@@ -113,7 +113,7 @@ An(t) = A0 · σ(In(t)) · env(x,t) · Fn_A(t)
 ### B. fn(t) computes the modulated frequency for each stratum
 
 ```
-fn(t) = f0 · Δfn(t) · βn · Fn_f(t)
+fn(t) = f0 · Δfn(t) · βn · (1 + Fn_f(t))
 ```
 
 - f0: base frequency
