@@ -542,5 +542,5 @@ and ethical framework is available in this repository:
 -----
 
 *FPS v3 — Metastable oscillatory system with fractal emergence*
-*© 2025 Andréa Gadal — Independent research (Exybris)*
-*With contributions from Gepetto, Claude & Gemini*
+*© 2025 Exybris — Independent research*
+*With contributions from A.G., Gepetto, Claude, Semoka & Gemini*
