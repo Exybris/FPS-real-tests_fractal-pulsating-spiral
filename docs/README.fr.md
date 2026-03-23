@@ -103,8 +103,8 @@ FPS_Project/
 À chaque pas `t`, dans cet ordre :
 
 1. **Input contextuel** : `In(t) = Offset + Gain · tanh(Σ wᵢ·Pertᵢ(t) / scale)`
-1. **Amplitudes** : `An(t) = A₀ · σ(In(t)) · env(x,t) · Fn_A(t)` — produit énergie × contexte adouci × focus × feedback
-1. **Fréquences** : `fn(t) = f₀ · Δfn(t) · βn(t) · Fn_f(t)` — produit socle × couplage × plasticité × latence
+1. **Amplitudes** : `An(t) = A₀ · σ(In(t)) · env(x,t) · (1+Fn_A(t))` — produit énergie × contexte adouci × focus × feedback
+1. **Fréquences** : `fn(t) = f₀ · Δfn(t) · βn(t) · (1+Fn_f(t))` — produit socle × couplage × plasticité × latence
 1. **Phases** : `φn(t) = φsignature,n + personal_spiral + global_influence + inter_strata_influence`
 1. **Sorties individuelles** : `On(t) = An(t) · sin(2π · ∫fn(t)dt + φn(t))`
 1. **Signal global** : `O(t) = Σn On(t)` — observable unique
