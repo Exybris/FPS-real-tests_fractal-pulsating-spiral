@@ -534,7 +534,7 @@ and ethical framework is available in this repository:
 
 ### Planned applications
 
-- **FPS as a self-regulating reservoir**: use FPS oscillators as a reservoir computer (à la Echo State Networks), where only the readout layer is trained — testing whether endogenous regulation produces richer, more robust representations on standard benchmarks
+- **FPS as a self-regulating reservoir**: use FPS oscillators as a reservoir computer (Echo State Networks like), where only the readout layer is trained — testing whether endogenous regulation produces richer, more robust representations on standard benchmarks
 - **FPS as an attention modulator**: apply FPS modulation to attention scores in a small transformer, measuring whether bounded self-regulation reduces attention collapse, score variance, and vulnerability to adversarial perturbations
 - **Toward oscillatory neural networks**: longer-term exploration where every neuron carries self-regulation by construction — FPS dynamics embedded at the unit level rather than as an external layer
 
