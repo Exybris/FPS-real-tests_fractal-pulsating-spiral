@@ -12,9 +12,9 @@ The complete reference notebook is located in `/notebooks`. The pipeline faithfu
 
 ## Overview
 
-The FPS is an oscillatory cybernetic system based on a network of metastable adaptive oscillators with endogenous regulation. It sits between descriptive models (Kuramoto) and prescriptive models (PID controller) by simulating a system that self-regulates around seven performance metrics on a non-stationary signal. The central hypothesis is that *the most efficient systems are structurally considerate* — a parsimonious and contextual regulation can improve performance by reducing unnecessary oscillations.
+The FPS is an oscillatory cybernetic system based on a network of metastable adaptive oscillators with endogenous regulation. It sits between descriptive models (Kuramoto) and prescriptive models (PID controller) by simulating a system that self-regulates around seven performance metrics on a non-stationary signal. The central hypothesis is that *the most efficient systems are structurally considerate*, a parsimonious and contextual regulation can improve performance by reducing unnecessary oscillations.
 
-The system relies on a **specialist perception / generalist action** separation: the global signal O(t) (sum of the oscillators) serves as the single observable for multi-metric evaluation and the construction of the emergent target state E(t). A perceptual prior S(t) — selected according to the dominant deficit among scores calculated on O(t) — provides a filtered view on which γ(t) and G(x) adjust the regulation. This indirection (O → scores → S → metrics → γ, G → feedback) preserves emergence while making the regulation relevant.
+The system relies on a **specialist perception / generalist action** separation: the global signal O(t) (sum of the oscillators) serves as the single observable for multi-metric evaluation and the construction of the emergent target state E(t). A perceptual prior S(t), selected according to the dominant deficit among scores calculated on O(t), provides a filtered view on which γ(t) and G(x) adjust the regulation. This indirection (O → scores → S → metrics → γ, G → feedback) preserves emergence while making the regulation relevant.
 
 -----
 
@@ -96,7 +96,7 @@ FPS_Project/
 
 -----
 
-## FPS Dynamics — Implemented Equations
+## FPS Dynamics: Implemented Equations
 
 ### Simulation Loop (one time step)
 
