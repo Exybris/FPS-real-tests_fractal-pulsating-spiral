@@ -80,10 +80,10 @@ FPS_Project/
 1. Complete validation of `config.json` via `validate_config.py`
 1. Environment, strata, and output folders initialization
 1. FPS simulation (main run with `simulate.py`):
-- Input In(t) → amplitudes An(t), frequencies fn(t), phases φn(t)
-- Individual outputs On(t) = An · sin(2π · ∫fn·dt + φn)
-- Global signal O(t) = Σn On(t)
-- Prospective prior E(t) via smoothed and delayed trace of O(t)
+- Input In(t) → amplitudes An(t), frequencies fn(t), phases φn(t) (`dynamics.py`)
+- Individual outputs On(t) = An · sin(2π · ∫fn·dt + φn) (`dynamics.py`)
+- Global signal O(t) = Σn On(t) (`dynamics.py`)
+- Prospective prior E(t) via smoothed and delayed trace of O(t) (`dynamics.py`)
 - Multi-metric scores calculated on O(t) → perceptual prior S(t) selection
 - Latency γ(t) and regulation G(x) adjusted on metrics calculated via S(t)
 - Feedback Fn(t) fed back into the oscillators
