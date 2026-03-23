@@ -515,6 +515,32 @@ With the same seed and the same `config.json`:
 
 -----
 
+## Paper
+
+The full technical paper describing the FPS architecture, equations, design intent, ablations, 
+and ethical framework is available in this repository:
+
+📄 [Oscillatory Metastable System — FPS (English)](oscillatory_metastable_system_FPS.md)
+
+-----
+
+## Roadmap
+
+### Architecture completion
+
+- **Full S(t) prior library**: implement all seven perceptual priors (currently: neutral and regulation; planned: innovation, effort, resilience, fluidity, stability, CPU cost) — each as a specialized projection of O(t)
+- **Metric-driven switching on O(t)**: formalize and harden the prior selection rule (lowest score → corresponding prior, all above threshold → neutral fallback)
+- **μn(t) adaptive focus**: make the envelope center dynamic, linking it to γ and G so the system can shift *where* it regulates, not just *how much*
+
+### Planned applications
+
+- **FPS as a self-regulating reservoir**: use FPS oscillators as a reservoir computer (à la Echo State Networks), where only the readout layer is trained — testing whether endogenous regulation produces richer, more robust representations on standard benchmarks
+- **FPS as an attention modulator**: apply FPS modulation to attention scores in a small transformer, measuring whether bounded self-regulation reduces attention collapse, score variance, and vulnerability to adversarial perturbations
+- **Toward oscillatory neural networks**: longer-term exploration where every neuron carries self-regulation by construction — FPS dynamics embedded at the unit level rather than as an external layer
+
+
+-----
+
 *FPS v3 — Metastable oscillatory system with fractal emergence*
 *© 2025 Andréa Gadal — Independent research (Exybris)*
 *With contributions from Gepetto, Claude & Gemini*
