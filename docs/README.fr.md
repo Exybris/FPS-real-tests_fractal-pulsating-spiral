@@ -515,6 +515,31 @@ Avec la même seed et le même `config.json` :
 
 -----
 
+## Papier
+
+Le papier technique complet décrivant l'architecture FPS, les équations, les intentions de
+design, les ablations et le cadre éthique est disponible dans ce dépôt :
+
+📄 [Système oscillatoire métastable — FPS (Français)](oscillatory_metastable_system_FPS.fr.md)
+
+-----
+
+## Feuille de route
+
+### Complétion de l'architecture
+
+- **Bibliothèque complète de priors S(t)** : implémenter les sept priors perceptifs (actuellement : neutre et régulation ; prévus : innovation, effort, résilience, fluidité, stabilité, coût CPU) — chacun comme une projection spécialisée de O(t)
+- **Switching piloté par les métriques sur O(t)** : formaliser et durcir la règle de sélection du prior (score le plus faible → prior correspondant, tous au-dessus du seuil → retour au neutre)
+- **μn(t) en focus adaptatif** : rendre le centre de l'enveloppe dynamique, en le liant à γ et G pour que le système puisse déplacer *où* il régule, pas seulement *combien*
+
+### Applications prévues
+
+- **FPS comme réservoir auto-régulé** : utiliser les oscillateurs FPS comme reservoir computer (à la Echo State Networks), où seule la couche de lecture est entraînée — tester si la régulation endogène produit des représentations plus riches et robustes sur des benchmarks standards
+- **FPS comme modulateur d'attention** : appliquer la modulation FPS aux scores d'attention dans un petit transformer, mesurer si l'auto-régulation bornée réduit le collapse attentionnel, la variance des scores et la vulnérabilité aux perturbations adversariales
+- **Vers des réseaux de neurones oscillatoires** : exploration à plus long terme où chaque neurone porte l'auto-régulation par construction — la dynamique FPS embarquée au niveau de l'unité plutôt que comme couche externe
+
+-----
+
 *FPS v3 — Système oscillatoire métastable à émergence fractale*
 *© 2025 Andréa Gadal — Recherche indépendante (Exybris)*
 *Avec les contributions de Gepetto, Claude & Gemini*
