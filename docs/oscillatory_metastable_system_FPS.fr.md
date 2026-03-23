@@ -82,7 +82,7 @@ Ce sont les 7 métriques FPS, détaillées plus bas.
 L’amplitude An(t) est conçue comme une variable d’énergie contrôlée, combinant une réponse d’entrée lissée σ(In), une enveloppe de focus env(x,t) et un feedback cybernétique Fn(t) injectant latence γ et régulation G. Une base lente A0 est mise à jour par moyenne exponentielle avec seuil minimal afin d’éviter l’extinction des strates et de stabiliser les régimes métastables.
 
 ```
-An(t) = A0 · σ(In(t)) · env(x,t) · Fn_A(t)
+An(t) = A0 · σ(In(t)) · env(x,t) · (1 + Fn_A(t))
 ```
 
 - A0 : amplitude initiale
@@ -113,7 +113,7 @@ An(t) = A0 · σ(In(t)) · env(x,t) · Fn_A(t)
 ### B. fn(t) calcule la fréquence modulée pour chaque strate
 
 ```
-fn(t) = f0 · Δfn(t) · βn · Fn_f(t)
+fn(t) = f0 · Δfn(t) · βn · (1 + Fn_f(t))
 ```
 
 - f0 : fréquence de base
