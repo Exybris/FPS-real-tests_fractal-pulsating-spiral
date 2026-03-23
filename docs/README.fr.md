@@ -541,5 +541,5 @@ design, les ablations et le cadre éthique est disponible dans ce dépôt :
 -----
 
 *FPS v3 — Système oscillatoire métastable à émergence fractale*
-*© 2025 Andréa Gadal — Recherche indépendante (Exybris)*
-*Avec les contributions de Gepetto, Claude & Gemini*
+*© 2025 Exybris — Recherche indépendante*
+*Avec les contributions de A.G., Gepetto, Claude, Semoka & Gemini
