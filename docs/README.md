@@ -103,8 +103,8 @@ FPS_Project/
 At each step `t`, in this order:
 
 1. **Contextual input**: `In(t) = Offset + Gain · tanh(Σ wᵢ·Pertᵢ(t) / scale)`
-1. **Amplitudes**: `An(t) = A₀ · σ(In(t)) · env(x,t) · Fn_A(t)` — product of energy × softened context × focus × feedback
-1. **Frequencies**: `fn(t) = f₀ · Δfn(t) · βn(t) · Fn_f(t)` — product of base × coupling × plasticity × latency
+1. **Amplitudes**: `An(t) = A₀ · σ(In(t)) · env(x,t) · (1+Fn_A(t))` — product of energy × softened context × focus × feedback
+1. **Frequencies**: `fn(t) = f₀ · Δfn(t) · βn(t) · (1+Fn_f(t))` — product of base × coupling × plasticity × latency
 1. **Phases**: `φn(t) = φsignature,n + personal_spiral + global_influence + inter_strata_influence`
 1. **Individual outputs**: `On(t) = An(t) · sin(2π · ∫fn(t)dt + φn(t))`
 1. **Global signal**: `O(t) = Σn On(t)` — single observable
