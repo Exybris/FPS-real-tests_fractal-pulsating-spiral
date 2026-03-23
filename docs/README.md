@@ -1,20 +1,24 @@
+*Read this in other languages: [🇫🇷 Français](README.fr.md), [🇬🇧 English](README.md).*
+
+-----
+
 # FPS — Fractal Pulsating Spiral
 
-Système cybernétique oscillatoire fondé sur un réseau d'oscillateurs adaptatifs métastables dotés d'une régulation endogène.
+Oscillatory cybernetic system based on a network of metastable adaptive oscillators with endogenous regulation.
 
-Le notebook de référence complet se trouve dans `/notebooks`. Le pipeline reproduit fidèlement la même dynamique en ajoutant l'orchestration batch, la comparaison multi-modes et la génération automatique de rapports.
+The complete reference notebook is located in `/notebooks`. The pipeline faithfully reproduces the same dynamics while adding batch orchestration, multi-mode comparison, and automatic report generation.
 
----
+-----
 
-## Présentation
+## Overview
 
-La FPS est un système cybernétique oscillatoire fondé sur un réseau d'oscillateurs adaptatifs métastables dotés d'une régulation endogène. Elle se situe entre les modèles descriptifs (Kuramoto) et prescriptifs (contrôleur PID) en simulant un système qui s'auto-régule autour de sept métriques de performance sur un signal non-stationnaire. L'hypothèse centrale est que *les systèmes les plus efficaces sont structurellement considérés et considérants*, une régulation parcimonieuse et contextuelle peut améliorer la performance en réduisant les oscillations inutiles.
+The FPS is an oscillatory cybernetic system based on a network of metastable adaptive oscillators with endogenous regulation. It sits between descriptive models (Kuramoto) and prescriptive models (PID controller) by simulating a system that self-regulates around seven performance metrics on a non-stationary signal. The central hypothesis is that *the most efficient systems are structurally considerate* — a parsimonious and contextual regulation can improve performance by reducing unnecessary oscillations.
 
-Le système repose sur une séparation **perception spécialiste / action généraliste** : le signal global O(t) (somme des oscillateurs) sert d'observable unique pour l'évaluation multi-métriques et la construction de l'état cible émergent E(t). Un prior perceptif S(t) (sélectionné selon le déficit dominant parmi les scores calculés sur O(t) ) fournit une vue filtrée sur laquelle γ(t) et G(x) ajustent la régulation. Cette indirection (O → scores → S → métriques → γ, G → feedback) préserve l'émergence tout en rendant la régulation pertinente.
+The system relies on a **specialist perception / generalist action** separation: the global signal O(t) (sum of the oscillators) serves as the single observable for multi-metric evaluation and the construction of the emergent target state E(t). A perceptual prior S(t) — selected according to the dominant deficit among scores calculated on O(t) — provides a filtered view on which γ(t) and G(x) adjust the regulation. This indirection (O → scores → S → metrics → γ, G → feedback) preserves emergence while making the regulation relevant.
 
----
+-----
 
-## Démarrage rapide
+## Quick Start
 
 ### Installation
 
@@ -26,166 +30,167 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Exécution
+### Execution
 
 ```bash
-# Pipeline complet : FPS + Kuramoto + Neutral + batch + exploration + visualisations
+# Complete pipeline: FPS + Kuramoto + Neutral + batch + exploration + visualizations
 python3 main.py complete --config config.json
 
-# Run simple FPS uniquement
+# Simple FPS run only
 python3 main.py run --config config.json --mode FPS
 
-# Mode strict (arrêt si NaN/Inf détecté)
+# Strict mode (stops if NaN/Inf detected)
 python3 simulate.py --config config.json --mode FPS --strict
 
-# Validation de la configuration seule
+# Configuration validation only
 python3 main.py validate --config config.json
 
-# Batch de simulations (5 runs par défaut, configurable)
+# Batch simulations (5 runs by default, configurable)
 python3 main.py batch --config config.json
 
-# Comparaison FPS vs Kuramoto
+# FPS vs Kuramoto comparison
 python3 main.py compare --config config.json
 ```
 
----
+-----
 
 ## Architecture
 
 ```
 FPS_Project/
-├── main.py                # Orchestrateur : pipeline complet, batch, comparaison
-├── validate_config.py     # Validation exhaustive du config.json (1er appel)
-├── init.py                # Initialisation strates, seeds, poids spiralés, logging
-├── perturbations.py       # Input contextuel In(t), perturbations composites
-├── dynamics.py            # Cœur FPS : An(t), fn(t), φn(t), On(t), En(t), γ(t), G(x)
-├── regulation.py          # Fonctions G(x), enveloppes, réponse locale Gn
-├── metrics.py             # 7 scores + 38 métriques loguées, scoring multi-fenêtres
-├── simulate.py            # Boucle de simulation FPS/Kuramoto/Neutral
-├── explore.py             # Détection d'émergences, fractals, anomalies
-├── analyze.py             # Analyse batch, raffinement automatique des seuils
-├── visualize.py           # Visualisations et rapport HTML
-├── utils.py               # Utilitaires, batch_runner, gestion fichiers
-├── config.json            # Configuration complète du système
+├── main.py                # Orchestrator: complete pipeline, batch, comparison
+├── validate_config.py     # Exhaustive config.json validation (1st call)
+├── init.py                # Strata initialization, seeds, spiral weights, logging
+├── perturbations.py       # Contextual input In(t), composite perturbations
+├── dynamics.py            # FPS core: An(t), fn(t), φn(t), On(t), En(t), γ(t), G(x)
+├── regulation.py          # G(x) functions, envelopes, local response Gn
+├── metrics.py             # 7 scores + 38 logged metrics, multi-window scoring
+├── simulate.py            # FPS/Kuramoto/Neutral simulation loop
+├── explore.py             # Detection of emergences, fractals, anomalies
+├── analyze.py             # Batch analysis, automatic threshold refinement
+├── visualize.py           # Visualizations and HTML report
+├── utils.py               # Utilities, batch_runner, file management
+├── config.json            # Complete system configuration
 └── notebooks/
-    └── NOTEBOOK_FPS.ipynb # Notebook de référence (implémentation alignée)
+    └── NOTEBOOK_FPS.ipynb # Reference notebook (aligned implementation)
 ```
 
-### Flux d'exécution (`main.py complete`)
+### Execution Flow (`main.py complete`)
 
-1. Validation complète du `config.json` via `validate_config.py`
-2. Initialisation de l'environnement, strates et dossiers de sortie
-3. Simulation FPS (run principal avec `simulate.py`) :
-   - Input In(t) → amplitudes An(t), fréquences fn(t), phases φn(t)
-   - Sorties individuelles On(t) = An · sin(2π · ∫fn·dt + φn)
-   - Signal global O(t) = Σn On(t)
-   - Prior prospectif E(t) par trace lissée et différée de O(t)
-   - Scores multi-métriques calculés sur O(t) → sélection du prior perceptif S(t)
-   - Latence γ(t) et régulation G(x) ajustées sur métriques calculées via S(t)
-   - Feedback Fn(t) réinjecté dans les oscillateurs
-4. Simulation Kuramoto (contrôle oscillateurs classiques)
-5. Simulation Neutral (contrôle sans rétroaction)
-6. Exploration des émergences via `explore.py`
-7. Analyse batch (5 runs FPS pour validation statistique) via `analyze.py`
-8. Génération des visualisations via `visualize.py`
-9. Rapport final HTML avec comparaison des trois modes
+1. Complete validation of `config.json` via `validate_config.py`
+1. Environment, strata, and output folders initialization
+1. FPS simulation (main run with `simulate.py`):
+- Input In(t) → amplitudes An(t), frequencies fn(t), phases φn(t)
+- Individual outputs On(t) = An · sin(2π · ∫fn·dt + φn)
+- Global signal O(t) = Σn On(t)
+- Prospective prior E(t) via smoothed and delayed trace of O(t)
+- Multi-metric scores calculated on O(t) → perceptual prior S(t) selection
+- Latency γ(t) and regulation G(x) adjusted on metrics calculated via S(t)
+- Feedback Fn(t) fed back into the oscillators
+1. Kuramoto simulation (classic oscillator control)
+1. Neutral simulation (control without feedback)
+1. Emergence exploration via `explore.py`
+1. Batch analysis (5 FPS runs for statistical validation) via `analyze.py`
+1. Visualization generation via `visualize.py`
+1. Final HTML report with comparison of the three modes
 
----
+-----
 
-## Dynamique FPS — Équations implémentées
+## FPS Dynamics — Implemented Equations
 
-### Boucle de simulation (un pas de temps)
+### Simulation Loop (one time step)
 
-À chaque pas `t`, dans cet ordre :
+At each step `t`, in this order:
 
-1. **Input contextuel** : `In(t) = Offset + Gain · tanh(Σ wᵢ·Pertᵢ(t) / scale)`
-2. **Amplitudes** : `An(t) = A₀ · σ(In(t)) · env(x,t) · Fn_A(t)` — produit énergie × contexte adouci × focus × feedback
-3. **Fréquences** : `fn(t) = f₀ · Δfn(t) · βn(t) · Fn_f(t)` — produit socle × couplage × plasticité × latence
-4. **Phases** : `φn(t) = φsignature,n + personal_spiral + global_influence + inter_strata_influence`
-5. **Sorties individuelles** : `On(t) = An(t) · sin(2π · ∫fn(t)dt + φn(t))`
-6. **Signal global** : `O(t) = Σn On(t)` — observable unique
-7. **Prior prospectif** : `En(t) = (1-λ) · En(t-dt) + λ · κ · On(t-T)` — trace lissée et différée
-8. **Scores sur O(t)** : 7 scores normalisés (stabilité, régulation, fluidité, résilience, innovation, effort, CPU)
-9. **Sélection du prior perceptif S(t)** : prior correspondant au score le plus faible, ou mode neutre S(t)=O(t) si tous satisfaisants
-10. **Latence** : `γ(t)` via `adaptive_aware` — optimise les scores calculés sur S(t)
-11. **Régulation** : `G(x)` adaptatif — transforme l'erreur (E-O) en correction bornée, archétype choisi selon contexte
-12. **Feedback** : `Fn_A(t) = βn · G_value` (→ amplitude) et `Fn_f(t) = βn · γ` (→ fréquence)
-13. **Mise à jour A₀** : `A₀ ← A₀(1-ρ) + An(t)·ρ`, plancher min_amplitude (mémoire lente d'énergie)
-14. **38 métriques** calculées et loguées
+1. **Contextual input**: `In(t) = Offset + Gain · tanh(Σ wᵢ·Pertᵢ(t) / scale)`
+1. **Amplitudes**: `An(t) = A₀ · σ(In(t)) · env(x,t) · Fn_A(t)` — product of energy × softened context × focus × feedback
+1. **Frequencies**: `fn(t) = f₀ · Δfn(t) · βn(t) · Fn_f(t)` — product of base × coupling × plasticity × latency
+1. **Phases**: `φn(t) = φsignature,n + personal_spiral + global_influence + inter_strata_influence`
+1. **Individual outputs**: `On(t) = An(t) · sin(2π · ∫fn(t)dt + φn(t))`
+1. **Global signal**: `O(t) = Σn On(t)` — single observable
+1. **Prospective prior**: `En(t) = (1-λ) · En(t-dt) + λ · κ · On(t-T)` — smoothed and delayed trace
+1. **Scores on O(t)**: 7 normalized scores (stability, regulation, fluidity, resilience, innovation, effort, CPU)
+1. **Perceptual prior S(t) selection**: prior corresponding to the lowest score, or neutral mode S(t)=O(t) if all are satisfactory
+1. **Latency**: `γ(t)` via `adaptive_aware` — optimizes scores calculated on S(t)
+1. **Regulation**: `G(x)` adaptive — transforms error (E-O) into bounded correction, archetype chosen according to context
+1. **Feedback**: `Fn_A(t) = βn · G_value` (→ amplitude) and `Fn_f(t) = βn · γ` (→ frequency)
+1. **A₀ update**: `A₀ ← A₀(1-ρ) + An(t)·ρ`, floor min_amplitude (slow energy memory)
+1. **38 metrics** calculated and logged
 
-### Signal global O(t) et prior perceptif S(t)
+### Global Signal O(t) and Perceptual Prior S(t)
 
 ```
 O(t) = Σₙ Aₙ(t) · sin(2π · ∫fₙ(t)dt + φₙ(t))
 ```
 
-O(t) est l'observable unique : on y calcule les métriques, on y sélectionne le prior perceptif, on y construit E(t).
+O(t) is the single observable: metrics are calculated on it, the perceptual prior is selected from it, E(t) is built from it.
 
-**Prior perceptif S(t)** — deux modes :
+**Perceptual prior S(t)** — two modes:
 
-- **Neutre** (tous scores satisfaisants) : `S(t) = O(t)`
-- **Régulation** (score de régulation le plus faible) : `S(t) = Σₙ [Aₙ · sin(2π·∫fₙdt + φₙ) · γₙ(t)] · G(Eₙ(t) - Oₙ(t))`
+- **Neutral** (all scores satisfactory): `S(t) = O(t)`
+- **Regulation** (lowest regulation score): `S(t) = Σₙ [Aₙ · sin(2π·∫fₙdt + φₙ) · γₙ(t)] · G(Eₙ(t) - Oₙ(t))`
 
-Le prior met en exergue ce qui peine, sans spécifier la nature du signal — γ et G travaillent sur les métriques évaluées à travers S(t), pas directement sur O(t).
+The prior highlights what is struggling, without specifying the nature of the signal — γ and G work on metrics evaluated through S(t), not directly on O(t).
 
-### Enveloppe adaptative
+### Adaptive Envelope
 
 ```
 Aₙ(t) = A₀ · σ(Iₙ(t)) · env(x, t) · Fn_A(t)
 ```
 
-Où `env(x,t) = exp(−½((x−μₙ(t))/σₙ(t))²)` (gaussienne) ou sigmoïde douce, et `σₙ(t) = offset + amp·sin(2π·freq·t/T)` en mode dynamique. L'enveloppe localise la régulation autour de μ — la correction est située (comme un projecteur), pas uniforme.
+Where `env(x,t) = exp(−½((x−μₙ(t))/σₙ(t))²)` (Gaussian) or soft sigmoid, and `σₙ(t) = offset + amp·sin(2π·freq·t/T)` in dynamic mode. The envelope localizes regulation around μ — the correction is situated (like a spotlight), not uniform.
 
-### Prior prospectif En(t)
+### Prospective Prior En(t)
 
 ```
 Eₙ(t) = (1 - λ) · Eₙ(t-dt) + λ · κ · Oₙ(t-T)
 ```
 
-Trace lissée et différée du signal : E(t) est informé par O(t) sans en être une copie instantanée, et n'agit pas directement sur O(t) en retour. Le délai T évite la boucle « miroir » instantanée, et (1-λ) donne de l'inertie à l'anticipation. κ (gain de couplage) est adaptatif selon l'effort, oscillant entre -1 et 1.618.
+Smoothed and delayed trace of the signal: E(t) is informed by O(t) without being an instantaneous copy of it, and does not act directly on O(t) in return. The delay T avoids the instantaneous “mirror” loop, and (1-λ) gives inertia to the anticipation. κ (coupling gain) is adaptive according to effort, oscillating between -1 and 1.618.
 
-### Effort d'adaptation
+### Adaptation Effort
 
 ```
 effort(t) = Σₙ [|ΔAₙ|/(|Aₙ|+ε) + |Δfₙ|/(|fₙ|+ε) + |Δγₙ|/(|γₙ|+ε)]
 ```
 
-Saturé à `MAX_EFFORT = 100.0` avec epsilon adaptatif à l'échelle des références.
+Saturated at `MAX_EFFORT = 100.0` with adaptive epsilon at the scale of references.
 
-### Latence γ(t) adaptive_aware
+### Latency γ(t) adaptive_aware
 
-γ(t) est un gain d'intégration qui module les fréquences via Fn_f(t). En mode `adaptive_aware`, γ apprend quelles valeurs maximisent la moyenne des 7 scores calculés sur le prior perceptif S(t) courant, en tenant compte des synergies avec G :
+γ(t) is an integration gain that modulates frequencies via Fn_f(t). In `adaptive_aware` mode, γ learns which values maximize the average of the 7 scores calculated on the current perceptual prior S(t), taking into account synergies with G:
 
 ```
 γ(t) = Π[0.1,1.0] (γ(t-Δt) + η_γ · ∇_γ Score(S(t)))
 ```
 
-- Phase d'exploration systématique des combinaisons (γ, G)
-- Calcul de `synergy_score = mean_perf · stability · (1 + growth)` par couple
-- Détection de synergies exceptionnelles (score > 4.5)
-- Mode transcendant synergique avec micro-oscillations autour de l'optimum
-- Signaux de communication γ→G pour suggérer des changements d'archétype
+- Systematic exploration phase of (γ, G) combinations
+- `synergy_score = mean_perf · stability · (1 + growth)` calculated per pair
+- Detection of exceptional synergies (score > 4.5)
+- Synergistic transcendent mode with micro-oscillations around the optimum
+- Communication signals γ→G to suggest archetype changes
 
-### Régulation G(x) adaptive_aware
+### Regulation G(x) adaptive_aware
 
-G(x) transforme l'erreur (E(t)-O(t)) en signal de correction bornée, transmis à l'amplitude via Fn_A(t). γ et G ne cherchent pas à optimiser directement O(t), mais les scores multi-métriques évalués via S(t).
+G(x) transforms the error (E(t)-O(t)) into a bounded correction signal, transmitted to amplitude via Fn_A(t). γ and G do not seek to optimize O(t) directly, but rather the multi-metric scores evaluated via S(t).
 
-Archétypes disponibles :
-- `tanh(λx)` pour la saturation douce (γ faible)
-- `sinc(x) = sin(x)/x` pour les oscillations amorties
-- `sin(βx)·exp(-αx²)` pour la résonance localisée (γ élevé)
-- `sign(x)·log(1+α|x|)·sin(βx)` pour la spirale logarithmique (γ élevé)
-- `α·tanh + (1-α)·spiral_log` pour le mode adaptatif (zone intermédiaire)
-- Rotation temporelle et transitions douces entre archétypes
-- Mémoire d'efficacité contextuelle par couple (G, γ_bucket, error_bucket)
+Available archetypes:
 
----
+- `tanh(λx)` for soft saturation (low γ)
+- `sinc(x) = sin(x)/x` for damped oscillations
+- `sin(βx)·exp(-αx²)` for localized resonance (high γ)
+- `sign(x)·log(1+α|x|)·sin(βx)` for logarithmic spiral (high γ)
+- `α·tanh + (1-α)·spiral_log` for adaptive mode (intermediate zone)
+- Temporal rotation and smooth transitions between archetypes
+- Contextual efficiency memory per pair (G, γ_bucket, error_bucket)
+
+-----
 
 ## Configuration
 
-Le fichier `config.json` contrôle l'intégralité du comportement. Voici les blocs principaux :
+The `config.json` file controls the entire behavior. Here are the main blocks:
 
-### Système
+### System
 
 ```json
 {
@@ -200,9 +205,9 @@ Le fichier `config.json` contrôle l'intégralité du comportement. Voici les bl
 }
 ```
 
-`signal_mode: "extended"` active la modulation par γn(t) et G(x) dans le prior perceptif S(t) (mode régulation).
+`signal_mode: "extended"` activates modulation by γn(t) and G(x) in the perceptual prior S(t) (regulation mode).
 
-### Input contextuel
+### Contextual Input
 
 ```json
 {
@@ -222,9 +227,9 @@ Le fichier `config.json` contrôle l'intégralité du comportement. Voici les bl
 }
 ```
 
-Types de perturbations disponibles : `none`, `choc`, `rampe`, `sinus`, `bruit`. L'offset et le gain peuvent être `adaptive` (s'auto-ajustent selon σ(In) et la saturation).
+Available perturbation types: `none`, `choc`, `rampe`, `sinus`, `bruit`. Offset and gain can be `adaptive` (self-adjusting according to σ(In) and saturation).
 
-### Couplage
+### Coupling
 
 ```json
 {
@@ -237,9 +242,9 @@ Types de perturbations disponibles : `none`, `choc`, `rampe`, `sinus`, `bruit`. 
 }
 ```
 
-Types : `spiral` (poids générés automatiquement avec décroissance en distance), `ring` (spirale fermée). Les poids sont normalisés pour que Σw=0 par strate (conservation du signal).
+Types: `spiral` (automatically generated weights with distance decay), `ring` (closed spiral). Weights are normalized so that Σw=0 per stratum (signal conservation).
 
-### Paramètres dynamiques
+### Dynamic Parameters
 
 ```json
 {
@@ -253,9 +258,9 @@ Types : `spiral` (poids générés automatiquement avec décroissance en distanc
 }
 ```
 
-Chaque paramètre peut être figé (`false`) ou adaptatif (`true`). `dynamic_phi` active la contrainte spiralée r(t) = φ + ε·sin(2π·ω·t + θ).
+Each parameter can be fixed (`false`) or adaptive (`true`). `dynamic_phi` activates the spiral constraint `r(t) = φ + ε·sin(2π·ω·t + θ)`.
 
-### Latence et régulation
+### Latency and Regulation
 
 ```json
 {
@@ -276,9 +281,9 @@ Chaque paramètre peut être figé (`false`) ou adaptatif (`true`). `dynamic_phi
 }
 ```
 
-Modes gamma disponibles : `static`, `dynamic`, `adaptive_aware`. Archétypes G : `tanh`, `sinc`, `resonance`, `spiral_log`, `adaptive`, `adaptive_aware`.
+Available gamma modes: `static`, `dynamic`, `adaptive_aware`. G archetypes: `tanh`, `sinc`, `resonance`, `spiral_log`, `adaptive`, `adaptive_aware`.
 
-### Enveloppe
+### Envelope
 
 ```json
 {
@@ -294,9 +299,9 @@ Modes gamma disponibles : `static`, `dynamic`, `adaptive_aware`. Archétypes G :
 }
 ```
 
-L'enveloppe module l'amplitude An(t) selon l'erreur En-On. En mode `dynamic`, σn(t) oscille dans le temps.
+The envelope modulates amplitude An(t) according to the error En-On. In `dynamic` mode, σn(t) oscillates over time.
 
-### Tests chimériques
+### Chimera Tests
 
 ```json
 {
@@ -308,7 +313,7 @@ L'enveloppe module l'amplitude An(t) selon l'erreur En-On. En mode `dynamic`, σ
 }
 ```
 
-Ces tests vérifient si les comportements émergents (états chimériques) sont intrinsèques à l'architecture FPS ou artefacts des conditions initiales.
+These tests verify whether emergent behaviors (chimera states) are intrinsic to the FPS architecture or artifacts of initial conditions.
 
 ### Exploration
 
@@ -325,7 +330,7 @@ Ces tests vérifient si les comportements émergents (états chimériques) sont 
 }
 ```
 
-### Validation batch
+### Batch Validation
 
 ```json
 {
@@ -337,107 +342,107 @@ Ces tests vérifient si les comportements émergents (états chimériques) sont 
 }
 ```
 
----
+-----
 
-## Métriques (38 loguées par pas de temps)
+## Metrics (38 logged per time step)
 
-### Signaux globaux
+### Global Signals
 
-| Métrique | Description |
-|----------|-------------|
-| `O(t)` | Signal global observable (somme des contributions de chaque strate) |
-| `S(t)` | Prior perceptif (vue filtrée de O(t) selon déficit dominant) |
-| `C(t)` | Coefficient d'accord spiralé (cohérence des phases adjacentes) |
-| `A_spiral(t)` | Amplitude spirale (modulation fréquentielle globale) |
-| `E(t)` | Prior prospectif (trace lissée et différée de O(t)) |
-| `L(t)` | Indice de la strate leader (max dAn/dt) |
+|Metric       |Description                                                           |
+|-------------|----------------------------------------------------------------------|
+|`O(t)`       |Observable global signal (sum of each stratum’s contributions)        |
+|`S(t)`       |Perceptual prior (filtered view of O(t) according to dominant deficit)|
+|`C(t)`       |Spiral agreement coefficient (adjacent phase coherence)               |
+|`A_spiral(t)`|Spiral amplitude (global frequency modulation)                        |
+|`E(t)`       |Prospective prior (smoothed and delayed trace of O(t))                |
+|`L(t)`       |Leading stratum index (max dAn/dt)                                    |
 
 ### Adaptation
 
-| Métrique | Description |
-|----------|-------------|
-| `An_mean(t)` | Amplitude moyenne des strates |
-| `fn_mean(t)` | Fréquence moyenne des strates |
-| `En_mean(t)` | Sortie attendue moyenne |
-| `On_mean(t)` | Sortie observée moyenne |
-| `In_mean(t)` | Input contextuel moyen |
-| `gamma` | Latence globale γ(t) |
-| `gamma_mean(t)` | Latence moyenne par strate γn(t) |
-| `G_arch_used` | Archétype de régulation utilisé |
+|Metric         |Description                      |
+|---------------|---------------------------------|
+|`An_mean(t)`   |Average stratum amplitude        |
+|`fn_mean(t)`   |Average stratum frequency        |
+|`En_mean(t)`   |Average expected output          |
+|`On_mean(t)`   |Average observed output          |
+|`In_mean(t)`   |Average contextual input         |
+|`gamma`        |Global latency γ(t)              |
+|`gamma_mean(t)`|Average per-stratum latency γn(t)|
+|`G_arch_used`  |Regulation archetype used        |
 
 ### Performance
 
-| Métrique | Description |
-|----------|-------------|
-| `effort(t)` | Effort d'adaptation interne (changement relatif) |
-| `effort_status` | Statut : `stable`, `transitoire`, `chronique` |
-| `mean_high_effort` | Percentile 80 de l'effort (effort chronique) |
-| `d_effort_dt` | Dérivée temporelle de l'effort (pics transitoires) |
-| `mean_abs_error` | Erreur moyenne |En-On| (qualité de la régulation) |
-| `cpu_step(t)` | Temps CPU par strate par pas |
+|Metric            |Description                                                       |
+|------------------|------------------------------------------------------------------|
+|`effort(t)`       |Internal adaptation effort (relative change)                      |
+|`effort_status`   |Status: `stable`, `transitoire` (transient), `chronique` (chronic)|
+|`mean_high_effort`|80th percentile of effort (chronic effort)                        |
+|`d_effort_dt`     |Time derivative of effort (transient peaks)                       |
+|`mean_abs_error`  |Mean error                                                        |
+|`cpu_step(t)`     |CPU time per stratum per step                                     |
 
-### Stabilité et résilience
+### Stability and Resilience
 
-| Métrique | Description |
-|----------|-------------|
-| `variance_d2S` | Variance de la dérivée seconde de S (accélération) |
-| `fluidity` | Fluidité du signal (sigmoïde inversée sur variance_d2S) |
-| `entropy_S` | Entropie spectrale normalisée (Shannon sur spectre de puissance = innovation) |
-| `max_median_ratio` | Ratio max/médiane de S (détection d'outliers) |
-| `continuous_resilience` | Résilience sous perturbation continue |
-| `adaptive_resilience` | Résilience adaptative multi-critères |
-| `t_retour` | Temps de retour après choc |
-| `temporal_coherence` | Cohérence temporelle (mémoire douce du signal) |
+|Metric                 |Description                                                         |
+|-----------------------|--------------------------------------------------------------------|
+|`variance_d2S`         |Variance of the second derivative of S (acceleration)               |
+|`fluidity`             |Signal fluidity (inverted sigmoid on variance_d2S)                  |
+|`entropy_S`            |Normalized spectral entropy (Shannon on power spectrum = innovation)|
+|`max_median_ratio`     |Max/median ratio of S (outlier detection)                           |
+|`continuous_resilience`|Resilience under continuous perturbation                            |
+|`adaptive_resilience`  |Multi-criteria adaptive resilience                                  |
+|`t_retour`             |Recovery time after shock                                           |
+|`temporal_coherence`   |Temporal coherence (soft signal memory)                             |
 
-### Échelles temporelles
+### Time Scales
 
-| Métrique | Description |
-|----------|-------------|
-| `tau_S` | Temps caractéristique du signal S(t) |
-| `tau_gamma` | Temps caractéristique de γ(t) |
-| `tau_C` | Temps caractéristique de C(t) |
-| `tau_A_mean` | Temps caractéristique des amplitudes |
-| `tau_f_mean` | Temps caractéristique des fréquences |
-| `autocorr_tau` | Tau d'autocorrélation effectif |
-| `decorrelation_time` | Temps de décorrélation |
+|Metric              |Description                       |
+|--------------------|----------------------------------|
+|`tau_S`             |Characteristic time of signal S(t)|
+|`tau_gamma`         |Characteristic time of γ(t)       |
+|`tau_C`             |Characteristic time of C(t)       |
+|`tau_A_mean`        |Characteristic time of amplitudes |
+|`tau_f_mean`        |Characteristic time of frequencies|
+|`autocorr_tau`      |Effective autocorrelation tau     |
+|`decorrelation_time`|Decorrelation time                |
 
-### Découverte (γ, G)
+### Discovery (γ, G)
 
-| Métrique | Description |
-|----------|-------------|
-| `best_pair_gamma` | γ du meilleur couple découvert |
-| `best_pair_G` | Archétype G du meilleur couple |
-| `best_pair_score` | Score de synergie du meilleur couple |
+|Metric           |Description                   |
+|-----------------|------------------------------|
+|`best_pair_gamma`|γ of the best discovered pair |
+|`best_pair_G`    |G archetype of the best pair  |
+|`best_pair_score`|Synergy score of the best pair|
 
-### Scoring adaptatif (1-5)
+### Adaptive Scoring (1-5)
 
-Le système calcule 7 scores normalisés avec fenêtres multi-échelles (immediate, recent, medium, global) et pondération selon la maturité de la simulation. Les scores ont un double rôle : calculés sur O(t) ils sélectionnent le prior perceptif S(t) ; calculés sur S(t) ils pilotent γ et G.
+The system calculates 7 normalized scores with multi-scale windows (immediate, recent, medium, global) and weighting according to the simulation’s maturity. Scores have a dual role: calculated on O(t) they select the perceptual prior S(t); calculated on S(t) they drive γ and G.
 
-- **stability** : basé sur std(S)
-- **regulation** : basé sur mean_abs_error
-- **fluidity** : basé sur la fluidité moyenne
-- **resilience** : adaptive_resilience → continuous_resilience → C(t) proxy
-- **innovation** : basé sur entropy_S
-- **cpu_cost** : basé sur cpu_step
-- **effort** : basé sur mean_effort
+- **stability**: based on std(S)
+- **regulation**: based on mean_abs_error
+- **fluidity**: based on average fluidity
+- **resilience**: adaptive_resilience → continuous_resilience → C(t) proxy
+- **innovation**: based on entropy_S
+- **cpu_cost**: based on cpu_step
+- **effort**: based on mean_effort
 
----
+-----
 
-## Sorties
+## Outputs
 
-### Structure des fichiers générés
+### Generated Files Structure
 
 ```
 fps_pipeline_output/run_YYYYMMDD_HHMMSS/
 ├── logs/
-│   ├── run_*_FPS_seed*.csv           # Métriques principales (38 colonnes, 1 ligne/step)
-│   ├── batch_run_*_FPS_seed*.csv     # Runs batch pour validation statistique
-│   ├── stratum_details_*.csv         # Signaux individuels par strate
-│   ├── log_plus_delta_fn_Si_*.csv    # delta_fn, S_i, f0n, An par strate
-│   ├── debug_detailed_*.csv          # Log détaillé tous les 10 steps
-│   ├── emergence_events_*.csv        # Événements d'émergence détectés
-│   ├── fractal_events_*.csv          # Patterns fractals détectés
-│   └── seeds.txt                     # Traçabilité des seeds
+│   ├── run_*_FPS_seed*.csv           # Main metrics (38 columns, 1 row/step)
+│   ├── batch_run_*_FPS_seed*.csv     # Batch runs for statistical validation
+│   ├── stratum_details_*.csv         # Individual signals per stratum
+│   ├── log_plus_delta_fn_Si_*.csv    # delta_fn, S_i, f0n, An per stratum
+│   ├── debug_detailed_*.csv          # Detailed log every 10 steps
+│   ├── emergence_events_*.csv        # Detected emergence events
+│   ├── fractal_events_*.csv          # Detected fractal patterns
+│   └── seeds.txt                     # Seed traceability
 ├── figures/
 │   ├── signal_evolution_fps.png
 │   ├── metrics_dashboard.png
@@ -448,25 +453,25 @@ fps_pipeline_output/run_YYYYMMDD_HHMMSS/
 │   ├── comparison_fps_vs_controls.json
 │   └── rapport_complet_fps.html
 ├── configs/
-│   └── config_*_main.json            # Config utilisée (snapshot)
+│   └── config_*_main.json            # Used config (snapshot)
 └── checkpoints/
-    └── *_backup_*.pkl                # Sauvegardes d'état (tous les 100 steps)
+    └── *_backup_*.pkl                # State backups (every 100 steps)
 ```
 
-### Indicateurs d'un run sain
+### Healthy Run Indicators
 
-- `effort(t)` oscille sans saturer constamment à 100
-- `entropy_S` > 0.3 (le système innove)
-- `fluidity` > 0.9 (pas de sauts brusques)
-- `mean_abs_error` < 0.05 (régulation effective)
-- `C(t)` > 0.99 (cohérence des phases maintenue)
-- `best_pair_score` converge vers > 4.5 (synergie trouvée)
+- `effort(t)` oscillates without constantly saturating at 100
+- `entropy_S` > 0.3 (the system innovates)
+- `fluidity` > 0.9 (no sudden jumps)
+- `mean_abs_error` < 0.05 (effective regulation)
+- `C(t)` > 0.99 (phase coherence maintained)
+- `best_pair_score` converges to > 4.5 (synergy found)
 
----
+-----
 
-## Outils complémentaires
+## Complementary Tools
 
-### Agrégation des logs
+### Log Aggregation
 
 ```bash
 pip install pyarrow
@@ -474,40 +479,42 @@ python3 aggregate_all.py -o aggregated/fps_dataset.h5
 python3 aggregate_all.py --metrics "S(t),A_mean(t),effort(t)"
 ```
 
-### Visualisation des dynamiques individuelles par strate
+### Individual Per-Stratum Dynamics Visualization
 
 ```bash
 python3 visualize_individual.py
 ```
 
-### Corrélations tau-performances
+### Tau-Performance Correlations
 
 ```bash
 python3 analyze_temporal_correlations.py
 ```
 
----
+-----
 
-## Alignement Pipeline ↔ Notebook
+## Pipeline ↔ Notebook Alignment
 
-Le pipeline et le notebook implémentent la même dynamique FPS et produisent des résultats identiques (377/500 steps parfaits, divergences résiduelles < 0.01% sur les métriques principales). Les deux partagent les mêmes modules `init.py`, `utils.py`, `visualize.py` et `explore.py`.
+The pipeline and the notebook implement the same FPS dynamics and produce identical results (377/500 perfect steps, residual divergences < 0.01% on main metrics). Both share the same modules `init.py`, `utils.py`, `visualize.py`, and `explore.py`.
 
-Différences structurelles intentionnelles :
-- Le pipeline orchestre 3 modes (FPS, Kuramoto, Neutral) + batch + exploration automatique
-- Le notebook offre un environnement interactif avec visualisations inline
-- Le pipeline sauvegarde des checkpoints et des logs détaillés par strate
+Intentional structural differences:
 
----
+- The pipeline orchestrates 3 modes (FPS, Kuramoto, Neutral) + batch + automatic exploration
+- The notebook offers an interactive environment with inline visualizations
+- The pipeline saves checkpoints and detailed per-stratum logs
 
-## Reproductibilité
+-----
 
-Avec la même seed et le même `config.json` :
-- Run principal et batch run 0 sont bit-pour-bit identiques
-- Pipeline et notebook produisent les mêmes valeurs sur toutes les métriques principales
-- Les strates sont auto-générées par `generate_strates(N, seed)` avec `RandomState` isolé
+## Reproducibility
 
----
+With the same seed and the same `config.json`:
 
-*FPS v3 — Système oscillatoire métastable à émergence fractale*
-*© 2025 Andréa Gadal — Recherche indépendante (Exybris)*
-*Avec les contributions de Gepetto, Claude & Gemini*
+- Main run and batch run 0 are bit-for-bit identical
+- Pipeline and notebook produce the same values on all main metrics
+- Strata are auto-generated by `generate_strates(N, seed)` with an isolated `RandomState`
+
+-----
+
+*FPS v3 — Metastable oscillatory system with fractal emergence*
+*© 2025 Andréa Gadal — Independent research (Exybris)*
+*With contributions from Gepetto, Claude & Gemini*
