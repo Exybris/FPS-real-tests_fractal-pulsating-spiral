@@ -515,12 +515,16 @@ With the same seed and the same `config.json`:
 
 -----
 
-## Paper
+## Papers
 
 The full technical paper describing the FPS architecture, equations, design intent, ablations, 
 and ethical framework is available in this repository:
 
 📄 [Oscillatory Metastable System — FPS (English)](oscillatory_metastable_system_FPS.md)
+
+The FPS research note which highlights the results of the initial tests
+
+📄 [Research Note — FPS (English)](FPS_Research_Note_eng.pdf)
 
 -----
 
