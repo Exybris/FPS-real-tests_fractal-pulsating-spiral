@@ -159,6 +159,7 @@ def run_fps_simulation(config, state, loggers, strict=False):
     # Initialiser les signaux de feedback à zéro
     F_n_t_An = np.zeros(N)
     F_n_t_fn = np.zeros(N)
+    phase_acc = np.zeros(N)
 
     # Historiques avec limite de mémoire
     MAX_HISTORY_SIZE = config.get('system', {}).get('max_history_size', 10000)
@@ -340,9 +341,12 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 print(f"⚠️ Erreur calcul phi adaptatif à t={t}: {e}")
                 phi_reg = config.get('regulation', {}).get('phi_fixed_value', 1.618)
             
+            phase_acc += 2 * np.pi * fn_t * dt
+            phase_inst = phase_acc + phi_n_t 
+
             # c) Sorties observée/attendue
             try:
-                On_t = dynamics.compute_On(t, state, An_t, fn_t, phi_n_t, config) if hasattr(dynamics, 'compute_On') else An_t
+                On_t = dynamics.compute_On(t, state, An_t, fn_t, phi_n_t, phase_inst, config) if hasattr(dynamics, 'compute_On') else An_t
                 En_t = dynamics.compute_En(t, state, history, config, phi_reg, history_align, effort_history) if hasattr(dynamics, 'compute_En') else An_t
             except Exception as e:
                 print(f"⚠️ Erreur compute On/En à t={t}: {e}")
@@ -454,7 +458,7 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 config_for_S['state'] = state
                 config_for_S['history'] = history
                 config_for_S['gamma'] = gamma_t
-                S_t = dynamics.compute_S(t, An_t, fn_t, phi_n_t, config_for_S, gamma_n_t=gamma_n_t) if hasattr(dynamics, 'compute_S') else 0.0
+                S_t = dynamics.compute_S(t, An_t, fn_t, phi_n_t, phase_inst, config_for_S, gamma_n_t=gamma_n_t) if hasattr(dynamics, 'compute_S') else 0.0
                 
                 # NOUVEAU : Ajouter S(t) au debug log
                 if 'debug_log_data' in locals():

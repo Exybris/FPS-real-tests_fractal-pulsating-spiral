@@ -1258,18 +1258,16 @@ def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
 # ============== SORTIES OBSERVÉE ET ATTENDUE ==============
 
 def compute_On(t: float, state: List[Dict], An_t: np.ndarray, fn_t: np.ndarray,
-               phi_n_t: np.ndarray, config: Dict) -> np.ndarray:
+               phi_n_t: np.ndarray, phase_inst, config: Dict) -> np.ndarray:
     """
     Calcule la sortie observée pour chaque strate.
     O(t) = A(t) · sin(2π·cumsum(f(t)·dt) + φ(t))
     Version notebook : sans gamma, avec intégration cumsum des fréquences.
     """
     N = len(state)
-    dt = config['system']['dt']
     On_t = np.zeros(N)
-    theta = 2 * np.pi * np.cumsum(fn_t * dt) + phi_n_t
     for n in range(N):
-        On_t[n] = An_t[n] * np.sin(theta[n])
+        On_t[n] = An_t[n] * np.sin(phase_inst[n])
     return On_t
 
 def compute_phi_adaptive(effort_current, effort_history, config):
@@ -1570,7 +1568,7 @@ def compute_Fn(t: float, beta_n: float, On_t: float, En_t: float, gamma_t: float
 # ============== SIGNAL GLOBAL ==============
 
 def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray, 
-              phi_n_array: np.ndarray, config: Dict, gamma_n_t: np.ndarray = None) -> float:
+              phi_n_array: np.ndarray, phase_inst, config: Dict, gamma_n_t: np.ndarray = None) -> float:
     """
     Calcule le signal global du système selon FPS Paper.
     
@@ -1591,14 +1589,11 @@ def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray,
     """
     mode = config.get('system', {}).get('signal_mode', 'simple')
     N = len(An_array)
-    
-    dt = config['system']['dt']
-    theta = 2 * np.pi * np.cumsum(fn_array * dt) + phi_n_array
 
     if mode == "simple":
         S_t = 0.0
         for n in range(N):
-            S_t += An_array[n] * np.sin(theta[n])
+            S_t += An_array[n] * np.sin(phase_inst[n])
         return S_t
     
     elif mode == "extended":
@@ -1611,19 +1606,19 @@ def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray,
         # Vérifier que state est valide
         if not state or len(state) != N:
             # Fallback sur mode simple si pas d'état complet
-            return compute_S(t, An_array, fn_array, phi_n_array, {'system': {'signal_mode': 'simple'}})
+            return compute_S(t, An_array, fn_array, phi_n_array, phase_inst, {'system': {'signal_mode': 'simple'}})
         
         # Utiliser gamma_n_t pré-calculé si fourni, sinon recalculer
         if gamma_n_t is None:
             gamma_n_t = compute_gamma_n(t, state, config, history=history,
                                        An_array=An_array, fn_array=fn_array)
         En_t = compute_En(t, state, history, config)
-        On_t = compute_On(t, state, An_array, fn_array, phi_n_array, config)
+        On_t = compute_On(t, state, An_array, fn_array, phi_n_array, phase_inst, config)
         
         S_t = 0.0
         for n in range(N):
             # Contribution de base avec latence selon FPS Paper
-            sin_component = np.sin(theta[n])
+            sin_component = np.sin(phase_inst[n])
             base_contribution = An_array[n] * sin_component * gamma_n_t[n]
             
             # Calcul de G(Eₙ - Oₙ) selon FPS Paper
@@ -1648,7 +1643,7 @@ def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray,
     
     else:
         # Par défaut, mode simple
-        return compute_S(t, An_array, fn_array, phi_n_array, {'system': {'signal_mode': 'simple'}})
+        return compute_S(t, An_array, fn_array, phi_n_array, phase_inst, {'system': {'signal_mode': 'simple'}})
 
 
 # ============== MÉTRIQUES GLOBALES ==============
