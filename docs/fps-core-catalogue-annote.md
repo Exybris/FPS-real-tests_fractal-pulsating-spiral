@@ -332,6 +332,78 @@ effort = (Σ|ΔAₙ|)/An_denom + (Σ|Δfₙ|)/fn_denom + (Σ|Δγₙ|)/γ_denom,
 
 ## 10. Suite
 
+### **OK :**
+
+-	Voir pourquoi curent_ratio (l.386) est calculé puis jamais utilisé, et voir s'il faut le brancher ou le supprimer. ✅ (supprimé)
+
+-	Supprimer effort_factor. ✅
+
+-	L.433 : r(t) est ré-inliné au lieu d’appeler compute_r, à corriger. ✅
+
+-	compute_En l.1350-1353 : un if/elif aux conditions identiques, la branche elif est morte. À corriger. ✅
+
+-	Supprimer le mécanisme k_spacing désactivé l.1342/1372-1374. ✅
+
+-	Pendant une transition trop rapprochée (<10 pas) le G_value est un mélange old/new mais il est loggé sous l’ancien archétype (l.1230), donc l'apprentissage attribue un G mélangé aux mauvais arch. À corriger. ✅
+
+-	Les params viennent de deux sources différentes pour G (inline dans les régimes l.1124-1173, vs adapt_params_for_archétype dans le veto/blend l.1204-1224), un même archétype peut donc recevoir des params différents selon le chemin. À fouiller et corriger. ✅
+
+-	Supprimer la fonction Fn. ✅
+
+- `gamma_adaptive_aware` tronque à `history[-50:]` avant de passer la tranche à `calculate_all_scores`. Et comme `calculate_all_scores` calcule `total_steps = len(recent_history)` (l.1171) puis `maturity = len(recent_history) / max(total_steps, 100)`, la conséquence est: 
+>`total_steps` plafonne à 50. Donc `maturity = 50 / max(50,100) = 50/100 = 0.5` dès que le run dépasse 50 pas — et reste bloqué à 0.5 pour toujours. Le système n'atteint jamais la maturité « pleine » (`>0.5` strict) : il vit en permanence sur le palier `maturity < 0.5`… ou pile à la bascule. À 50 pas pile c'est `0.5`, donc la branche `≥0.5` (mature, avec fenêtre `global`) s'active — mais `global = compute_scores(recent_history)` = sur les 50, identique à `medium` plafonné. Donc en pratique le run mature tourne sur `immediate/recent/medium/global` tous calculés dans une fenêtre ≤50. 
+>La « maturité par âge du run » ne se déclenche jamais vraiment. L'intention du design (juger l'immédiat au début, intégrer le global à terme) est court-circuitée par le [-50:] : passé 50 pas, l'horizon est gelé. ✅
+
+- Deux garde-fous neutres empilés : `compute_scores` renvoie 3.0 partout si <3 pas (l.1002), et `calculate_all_scores` renvoie `{'current': 3.0…}` si <5 pas (l.1157). Donc avant 5 pas, `γ` ne reçoit aucune information discriminante — incohérent avec la phase d'exploration des 50 premiers pas (les combinaisons efficaces faites pendanr le randn n'ont pas de score pour les repérer, rendant l'exploration randn inutile). Trouver une solution qui permet d'avoir des scores lors du balayage par randn. ✅
+
+- Mettre à jour S(t) extended (sans gamma_n et G), en lien avec son docstring ✅
+
+- gamma_adaptive_aware : une variable écrasée (`state_key`) dans le mode transcendant. 
+Au début de la fonction, `state_key` = `(round(gamma_current,1), current_G_arch)` désigne l'état courant. Mais à la l.950, la boucle `for state_key, state_info in journal['coupled_states'].items()` réutilise le même nom comme variable d'itération — donc après la boucle, `state_key` ne vaut plus l'état courant mais la dernière clé du dictionnaire. Or à la l.970, le choix « micro-ondulations vs convergence » repose justement sur `if best_synergy and state_key == best_synergy`. L'intention (le commentaire le dit : « si on est dans la synergie parfaite ») était de tester si l'état courant est le meilleur couple. À cause de l'écrasement, ça teste si la dernière clé itérée l'est — c'est-à-dire l'ordre d'insertion du dict, pas l'état réel. L'impact est borné (les deux branches visent un γ proche de `best_synergy[0]`), mais la trajectoire exacte de γ en diffère → fix chirurgical : un nom distinct, genre current_state_key, utilisé à la l.970. ✅
+
+- Le garde-fou < 3 pas renvoie tout à 3.0 (l.1002-1011) — les 7 scores neutres tant que la fenêtre est trop courte. À acter, parce que ça veut dire que les tout premiers pas ne « pilotent » γ avec rien de discriminant et ne permet pas d'enregistrer des synergies effectives pendant l'exploration randn en début de run. ✅
+
+- La mémoire d'efficacité de G compte chaque observation ~29 fois. Dans compute_G_adaptive_aware, l'étape "analyser l'efficacité contextuelle" (l.1069-1086) re-balaie history[-30:] à chaque appel et ré-appende toutes les paires (pas i → pas i+1) dans effectiveness_by_context — sans marqueur de ce qui a déjà été traité. Donc chaque transition historique est ré-enregistrée à chaque pas tant qu'elle reste dans la fenêtre des 30 : la mémoire gonfle ~29× trop vite, et surtout la moyenne sur [-5:] qui décide du veto est dominée par les toutes dernières paires répétées. C'est la même famille que le bug d'attribution du blend, mais en pire : non seulement on apprend parfois avec de fausses étiquettes, mais on apprend en bégayant. ✅
+
+- Le blend dure 100 pas, pas 10. Le commentaire dit "10 steps" mais le test est t - last_transition_time < 10 où t est en unités de temps — avec dt=0.1, ça fait 100 pas de mélange. Et pendant tout ce temps, current_G_arch n'est pas mis à jour, donc... ✅
+
+- ...spam de transitions pendant le blend. Chaque pas où l'archétype choisi diffère de l'ancien appende un nouvel enregistrement dans G_transition_history — pendant un blend de 100 pas, ça peut faire ~100 fausses transitions enregistrées pour un seul changement réel. ✅
+
+- compute_G_adaptive_aware appelée N fois par pas (une par strate) : ce qui n'est pas par strate, c'est sa mémoire, son current_G_arch, son compteur adaptation_cycles qui avance N fois par pas, ses transitions qui peuvent s'accomplir entre la strate 3 et la strate 4 d'un même instant. À fouiller. ✅
+
+### **STILL :**
+
+- gamma_adaptive_aware : le mode quantique (l.1030) est inatteignable. 
+Dans l'exploration consciente, l'espace des G testés est `all_G_archs = {tanh, resonance, spiral_log, adaptive, adaptive_aware}` (l.999). Mais `adaptive_aware` n'est qu'un alias-secours (notre §3.1) — il n'apparaît jamais comme `G_arch_used` réel. Donc les 10 couples `(γ, 'adaptive_aware')` ne sont **jamais** dans `tested_combinations` → `untested` n'est jamais vide → la branche `else` qui appelle `create_quantum_gamma` (l.1030) n'est jamais atteinte. Le mode quantique est donc dormant. Ça tient entièrement à ce que `G_adaptive_aware` peut émettre comme `G_arch_used`, et il n'émet pas de `adaptive_aware`. Si on veut que le "mode quantique" vive, il faudra retirer adaptive_aware de cet ensemble (n'y mettre que les 4 vrais archétypes).
+
+- Rloc_smooth ne lisse qu'un seul nœud. Il est calculé dans la boucle (Rloc_smooth = np.convolve(Rloc[:, n], …)), réassigné à chaque tour. Après la boucle, il ne contient donc que le lissage du dernier nœud (n = N−1). Et comme ce dernier nœud vaut 1.0 partout (voir couplage), le Rloc_smooth renvoyé est une constante ≈ 1.0, sans rapport avec la carte. Fix : Rloc_smooth = np.zeros((T,N)) avant la boucle, et Rloc_smooth[:, n] = np.convolve(...) dedans.
+
+- Rloc_smooth n'est pas dans ces huit fichiers (il vit dans le module de visualisation, conforme au catalogue qui le met hors moteur nu — à uploader plus tard)
+
+- k_neighbors = N : nom trompeur. Ce n'est pas un « K local » réglable — c'est « tous les voisins non nuls ». Inoffensif avec la W tridiagonale (≈2 voisins/nœud de toute façon), mais le nom suggère une localité paramétrable qui n'existe pas.
+
+- Le buffer d'attribut de fonction (l.335-343). `compute_entropy_S._buffer` est un état caché persistant attaché à la fonction, qui accumule les 5 dernières valeurs scalaires entre les appels. Trois problèmes :
+> Reproductibilité : cet état survit d'un appel à l'autre et d'un run à l'autre dans le même process — il n'est jamais remis à zéro. Deux simulations lancées à la suite partagent ce buffer. Pour la parité bit-à-bit avec l'oracle et la reproductibilité, c'est un point de fuite réel (le 1ᵉʳ run et le 2ᵉ ne partent pas du même état).
+> Cohérence : ce buffer (max 5 valeurs) double S_history qui existe déjà ailleurs — la fonction se reconstruit une mini-mémoire au lieu de recevoir la fenêtre proprement.
+
+- `resilience` : On avait vu côté `compute_scores` qu'elle puise en cascade dans trois sources (`adaptive` → `continuous` → proxy `C(t)`). D'abord `adaptive_resilience` (l.576), parce que c'est elle qui choisit : un vrai switch selon le type de perturbation. La sélection est explicite, elle lit `config.system.input.perturbations` et si l'une est `sinus/bruit/rampe` → perturbation continue → `continuous_resilience` ; sinon (`choc` ou rien) → ponctuelle → `t_retour` (l.449). Les deux barèmes 1-5 sont nets (continue : seuils 0.90/0.75/0.60/0.40 ; ponctuelle : t_retour < 1/2/5/10, avec normalisation 1/(1+t_retour), l.683). Et il y a un repli de compatibilité ascendante vers l'ancienne clé config.system.perturbation (l.619-626) — attention au portage : deux schémas de config coexistent. Certaines choses à approfondir et corriger si besoin :
+> 🟡 le défaut dt=0.05 dans la signature (l.579) ≠ le dt=0.1 de ta config. Si jamais un appelant ne passe pas dt, t_retour se calcule sur la mauvaise échelle de temps. À vérifier côté appel (probablement dt est bien passé, mais le défaut est trompeur).
+> 🟡 sous la config livrée, perturbation_type = 'none' (la seule perturbation est type: none) → branche t_retour, mais avec t_choc=None → t_retour ne se calcule pas → la cascade de compute_scores retombe alors sur continuous puis sur le proxy C(t). Donc en run nominal sans perturbation, la résilience est en pratique portée par le proxy C(t), pas par les deux « vraies » métriques. Bon à savoir : ce qui pilote γ côté résilience, au repos, c'est la cohésion de chaîne.
+> 🔴 Si le switch dépend de la config de l'input, ce sera problématique quand l'input ne sera plus programmé mais reçu et varié (dans des applications terrain par exemple).
+> 🟡 Le perturbation_active=True par défaut + le repli sur 1.0 (l.525) : si l'historique fait moins de 20 points, ça renvoie 1.0 (résilience parfaite) — un optimisme de démarrage (les premiers pas paraissent parfaitement résilients).
+
+- La résilience a une cascade de repli à trois étages (le §9 dit « choisit selon le contexte » — voici le mécanisme exact). Elle essaie dans l'ordre : adaptive_resilience si présente (seuils ≥0.90/0.75/0.60/0.40, l.1048-1057) → sinon continuous_resilience (mêmes seuils, l.1063-1072) → sinon C(t) comme proxy sur les 5 derniers (>0.9/0.7/0.5/0.3, l.1075-1076), et défaut 3 si rien. Donc le score de résilience peut venir de trois sources différentes selon ce qui est dispo dans la tranche — un point de vigilance à fouiller et corriger si besoin (deux runs peuvent scorer la résilience par des chemins différents).
+
+- `compute_cpu_step` (l.37) : c'est (end−start)/N sur des time.perf_counter() : c'est du temps mur, par nature non reproductible et dépendant de la machine. Et ça pilote γ (via le score cpu_cost). Pour la parité bit-à-bit avec l'oracle, c'est un point dur réel à régler.
+
+- Enlever l'affichage et le log debug des valeurs de An(t) et autres à chaque pas dans le terminal (ne garder que le log normal à chaque pas, parmi les autres valeurs)
+
+- Sortir le poids borné et le recentrage de la fonction S(t) dans un _echelle_attention(err, eps) réutilisable pour le jour où les autres filtres arrivent.
+
+- Calculer les même scores que ceux calculés sur S(t) pour les visualisations, mais sur O(t) et en faire aussi des visualisations dans visualize.py
+
+### **QUESTIONS :**
+
 -	Voir si le fait que sinc ne fait pas partie des archétypes sélectionnés par G_adaptive_aware est cohérent ou une erreur.
 
 -	Voir si l'arrondi à 1 décimale pour f0, k et w, l'arrondi à 6 décimales pour A0, et celui à 2 décimales pour alpha/beta/x0 sont une différence cohérente ou une erreur.
@@ -342,73 +414,36 @@ effort = (Σ|ΔAₙ|)/An_denom + (Σ|Δfₙ|)/fn_denom + (Σ|Δγₙ|)/γ_denom,
 
 -	Voir le second appel à compute_En (l.159 dynamics.py) est cohérent ou s’il faut corriger (par exemple en remplaçant l’appel par autre-chose qui donne ce qui est attendu plus directement).
 
--	Voir pourquoi curent_ration (l.386) est calculé puis jamais utilisé, et voir s'il faut le brancher ou le supprimer.
-
--	Supprimer effort_factor.
-
 -	Voir en quoi phi_sig = state[n][‘phi’] est “non stockée au sens pas réécrite dans state/portée par l'état" et si ça pose problème.
-
--	L.433 : r(t) est ré-inliné au lieu d’appeler compute_r, à corriger.
-
--	compute_En l.1350-1353 : un if/elif aux conditions identiques, la branche elif est morte. À corriger.
-
--	Supprimer le mécanisme k_spacing désactivé l.1342/1372-1374.
 
 -	Un allias adaptive_aware dans compute_G (l.100-105 regulation.py) mais qui ne renvoie qu’un tanh de secours : voir si c’est cohérent ou une erreur à supprimer.
 
 -	preferred_G_by_gamma est en écriture seule. Elle est incrémentée à chaque pas (l.1246-1253 dynamics.py) mais jamais relue pour décider, dans toute la fonction. Une partie de la mémoire apprend et agit (effectiveness), une autre est seulement enregistrée. Voir si c’est cohérent ou si c’est une erreur.
 
--	Pendant une transition trop rapprochée (<10 pas) le G_value est un mélange old/new mais il est loggé sous l’ancien archétype (l.1230), donc l'apprentissage attribue un G mélangé aux mauvais arch. À corriger.
-
--	Les params viennent de deux sources différentes pour G (inline dans les régimes l.1124-1173, vs adapt_params_for_archétype dans le veto/blend l.1204-1224), un même archétype peut donc recevoir des params différents selon le chemin. À fouiller et corriger.
-
 -	Voir si les randn poseront problème plus tard (portage, adaptation pour une application terrain..).
-
--	Supprimer la fonction Fn.
-
-- `gamma_adaptive_aware` tronque à `history[-50:]` avant de passer la tranche à `calculate_all_scores`. Et comme `calculate_all_scores` calcule `total_steps = len(recent_history)` (l.1171) puis `maturity = len(recent_history) / max(total_steps, 100)`, la conséquence est: 
->`total_steps` plafonne à 50. Donc `maturity = 50 / max(50,100) = 50/100 = 0.5` dès que le run dépasse 50 pas — et reste bloqué à 0.5 pour toujours. Le système n'atteint jamais la maturité « pleine » (`>0.5` strict) : il vit en permanence sur le palier `maturity < 0.5`… ou pile à la bascule. À 50 pas pile c'est `0.5`, donc la branche `≥0.5` (mature, avec fenêtre `global`) s'active — mais `global = compute_scores(recent_history)` = sur les 50, identique à `medium` plafonné. Donc en pratique le run mature tourne sur `immediate/recent/medium/global` tous calculés dans une fenêtre ≤50. 
->La « maturité par âge du run » ne se déclenche jamais vraiment. L'intention du design (juger l'immédiat au début, intégrer le global à terme) est court-circuitée par le [-50:] : passé 50 pas, l'horizon est gelé.
-
-- Deux garde-fous neutres empilés : `compute_scores` renvoie 3.0 partout si <3 pas (l.1002), et `calculate_all_scores` renvoie `{'current': 3.0…}` si <5 pas (l.1157). Donc avant 5 pas, `γ` ne reçoit aucune information discriminante — incohérent avec la phase d'exploration des 50 premiers pas (les combinaisons efficaces faites pendanr le randn n'ont pas de score pour les repérer, rendant l'exploration randn inutile). Trouver une solution qui permet d'avoir des scores lors du balayage par randn.
-
-- Mettre à jour S(t) extended (sans gamma_n et G), en lien avec son docstring
 
 - `γn` utilisé par effort (l.532 : delta_gamma_n → l.538 : compute_effort), présent dans l'update state (update_state (l.447) → state[n]['current_gamma'] (l.1803) — persisté) et le logging (gamma_mean(t) l.667/703/841, gamma_n en historique l.828). À étudier, garder si pertinent et supprimer si non (et remplacer par plus pertinent et effectif dans l'effort).
 
-- gamma_adaptive_aware : une variable écrasée (`state_key`) dans le mode transcendant. 
-Au début de la fonction, `state_key` = `(round(gamma_current,1), current_G_arch)` désigne l'état courant. Mais à la l.950, la boucle `for state_key, state_info in journal['coupled_states'].items()` réutilise le même nom comme variable d'itération — donc après la boucle, `state_key` ne vaut plus l'état courant mais la dernière clé du dictionnaire. Or à la l.970, le choix « micro-ondulations vs convergence » repose justement sur `if best_synergy and state_key == best_synergy`. L'intention (le commentaire le dit : « si on est dans la synergie parfaite ») était de tester si l'état courant est le meilleur couple. À cause de l'écrasement, ça teste si la dernière clé itérée l'est — c'est-à-dire l'ordre d'insertion du dict, pas l'état réel. L'impact est borné (les deux branches visent un γ proche de `best_synergy[0]`), mais la trajectoire exacte de γ en diffère → fix chirurgical : un nom distinct, genre current_state_key, utilisé à la l.970.
-
-- gamma_adaptive_aware : le mode quantique (l.1030) est inatteignable. 
-Dans l'exploration consciente, l'espace des G testés est `all_G_archs = {tanh, resonance, spiral_log, adaptive, adaptive_aware}` (l.999). Mais `adaptive_aware` n'est qu'un alias-secours (notre §3.1) — il n'apparaît jamais comme `G_arch_used` réel. Donc les 10 couples `(γ, 'adaptive_aware')` ne sont **jamais** dans `tested_combinations` → `untested` n'est jamais vide → la branche `else` qui appelle `create_quantum_gamma` (l.1030) n'est jamais atteinte. Le mode quantique est donc dormant. Ça tient entièrement à ce que `G_adaptive_aware` peut émettre comme `G_arch_used`, et il n'émet pas de `adaptive_aware`. Si on veut que le "mode quantique" vive, il faudra retirer adaptive_aware de cet ensemble (n'y mettre que les 4 vrais archétypes).
-
-- Rloc_smooth ne lisse qu'un seul nœud. Il est calculé dans la boucle (Rloc_smooth = np.convolve(Rloc[:, n], …)), réassigné à chaque tour. Après la boucle, il ne contient donc que le lissage du dernier nœud (n = N−1). Et comme ce dernier nœud vaut 1.0 partout (voir couplage), le Rloc_smooth renvoyé est une constante ≈ 1.0, sans rapport avec la carte. Fix : Rloc_smooth = np.zeros((T,N)) avant la boucle, et Rloc_smooth[:, n] = np.convolve(...) dedans.
-
-- k_neighbors = N : nom trompeur. Ce n'est pas un « K local » réglable — c'est « tous les voisins non nuls ». Inoffensif avec la W tridiagonale (≈2 voisins/nœud de toute façon), mais le nom suggère une localité paramétrable qui n'existe pas.
+- `fluidity` : tout repose sur `reference_variance = 175.0`, un nombre magique « médiane empirique » non sourcé, et sensible à l'échelle de S(t). C'est précisément ce qui interagit avec le refactor S(t) (le recentrage sur 1 garde l'échelle ≈ O(t), donc le 175 reste valable). Réfléchir à un design adapté.
 
 - `entropy_S` (innovation) : trois régimes très inégaux, et un buffer caché problématique.
 Le vrai calcul d'entropie spectrale (periodogram → Shannon → normalisé) n'existe qu'au-delà de 10 points (l.367-391) — et il est correct, propre. Mais en dessous, ce sont des approximations de plus en plus grossières :
 > 3 à 9 points → 0.1 + 0.8·tanh(variance) (l.365) : ce n'est plus une entropie spectrale du tout, c'est une fonction de la variance. La sémantique change sous le même nom.
 > < 3 points (valeur scalaire seule) → un mapping sigmoïde sur la magnitude |S| (l.350-357), encore une autre sémantique.
-> Donc « innovation » mesure trois choses différentes selon la quantité de données — diversité spectrale, variance, ou magnitude. Pour un score qui pilote γ, c'est un fil à tirer.
+> Donc « innovation » mesure trois choses différentes selon la quantité de données — diversité spectrale, variance, ou magnitude. Pour un score qui pilote γ, c'est un fil à tirer. Explorer ce que serait le design le plus adapté au système.
 
-- Le buffer d'attribut de fonction (l.335-343). `compute_entropy_S._buffer` est un état caché persistant attaché à la fonction, qui accumule les 5 dernières valeurs scalaires entre les appels. Trois problèmes :
-> Reproductibilité : cet état survit d'un appel à l'autre et d'un run à l'autre dans le même process — il n'est jamais remis à zéro. Deux simulations lancées à la suite partagent ce buffer. Pour la parité bit-à-bit avec l'oracle et la reproductibilité, c'est un point de fuite réel (le 1ᵉʳ run et le 2ᵉ ne partent pas du même état).
-> Cohérence : ce buffer (max 5 valeurs) double S_history qui existe déjà ailleurs — la fonction se reconstruit une mini-mémoire au lieu de recevoir la fenêtre proprement.
+- Pour le second appel compute_En dans compute_An : il recompute φ_reg depuis history au lieu du buffer effort_history → micro-divergence possible avec le En "officiel" de la l.350. Le fix propre serait de réordonner le pas (φ_reg → Eₙ → Aₙ avec Eₙ passé en argument) — mais ça touche l'ordre du pipeline, donc rangé avec les discussions. compute_S aussi recompute En en interne — donc sous la config livrée, En est calculé trois fois par pas (le officiel, celui de compute_An, celui de compute_S), chacun refaisant son propre φ_reg depuis des sources légèrement différentes. C'est un argument de plus pour réordonner le pas lors du refactor S(t) : φ_reg → Eₙ une seule fois → passé en argument partout.
 
-- `fluidity` : tout repose sur `reference_variance = 175.0`, un nombre magique « médiane empirique » non sourcé, et sensible à l'échelle de S(t). C'est précisément ce qui interagit avec le refactor S(t) (le recentrage sur 1 garde l'échelle ≈ O(t), donc le 175 reste valable).
 
-- `resilience` : On avait vu côté `compute_scores` qu'elle puise en cascade dans trois sources (`adaptive` → `continuous` → proxy `C(t)`). D'abord `adaptive_resilience` (l.576), parce que c'est elle qui choisit : un vrai switch selon le type de perturbation. La sélection est explicite, elle lit `config.system.input.perturbations` et si l'une est `sinus/bruit/rampe` → perturbation continue → `continuous_resilience` ; sinon (`choc` ou rien) → ponctuelle → `t_retour` (l.449). Les deux barèmes 1-5 sont nets (continue : seuils 0.90/0.75/0.60/0.40 ; ponctuelle : t_retour < 1/2/5/10, avec normalisation 1/(1+t_retour), l.683). Et il y a un repli de compatibilité ascendante vers l'ancienne clé config.system.perturbation (l.619-626) — attention au portage : deux schémas de config coexistent. Certaines choses à approfondir et corriger si besoin :
-> 🟡 le défaut dt=0.05 dans la signature (l.579) ≠ le dt=0.1 de ta config. Si jamais un appelant ne passe pas dt, t_retour se calcule sur la mauvaise échelle de temps. À vérifier côté appel (probablement dt est bien passé, mais le défaut est trompeur).
-> 🟡 sous la config livrée, perturbation_type = 'none' (la seule perturbation est type: none) → branche t_retour, mais avec t_choc=None → t_retour ne se calcule pas → la cascade de compute_scores retombe alors sur continuous puis sur le proxy C(t). Donc en run nominal sans perturbation, la résilience est en pratique portée par le proxy C(t), pas par les deux « vraies » métriques. Bon à savoir : ce qui pilote γ côté résilience, au repos, c'est la cohésion de chaîne.
-> 🔴 Si le switch dépend de la config de l'input, ce sera problématique quand l'input ne sera plus programmé mais reçu et varié (dans des applications terrain par exemple).
-> 🟡 Le perturbation_active=True par défaut + le repli sur 1.0 (l.525) : si l'historique fait moins de 20 points, ça renvoie 1.0 (résilience parfaite) — un optimisme de démarrage (les premiers pas paraissent parfaitement résilients).
+## 11. Ce qui a été fait :
 
-- `compute_cpu_step` (l.37) : c'est (end−start)/N sur des time.perf_counter() : c'est du temps mur, par nature non reproductible et dépendant de la machine. Et ça pilote γ (via le score cpu_cost). Pour la parité bit-à-bit avec l'oracle, c'est un point dur réel à régler.
+- le elif mort, k_spacing + history_align (y compris son entretien dans simulate.py l.599-603), les commentaires effort_factor, current_ratio, la fonction compute_Fn, le remplacement de l'inline l.433 par compute_r (la config fournit ε et ω, donc strictement équivalent), et le renommage qui répare state_key (la branche micro-ondulations vs convergence testera enfin le vrai état courant en mode transcendant).
 
-- La résilience a une cascade de repli à trois étages (le §9 dit « choisit selon le contexte » — voici le mécanisme exact). Elle essaie dans l'ordre : adaptive_resilience si présente (seuils ≥0.90/0.75/0.60/0.40, l.1048-1057) → sinon continuous_resilience (mêmes seuils, l.1063-1072) → sinon C(t) comme proxy sur les 5 derniers (>0.9/0.7/0.5/0.3, l.1075-1076), et défaut 3 si rien. Donc le score de résilience peut venir de trois sources différentes selon ce qui est dispo dans la tranche — un point de vigilance à fouiller et corriger si besoin (deux runs peuvent scorer la résilience par des chemins différents).
+- La maturité gelée, l'exploration aveugle, le bégaiement d'efficacité (~29 duplications par observation), le blend de 100 pas, et le spam de transitions. ⚠️ Note de coût : la fenêtre global croît avec le run → compute_scores sur tout l'historique à chaque pas. Négligeable sur nos runs courts ; si les longs runs ralentissent, levier simple = plafonner la fenêtre globale (max_percent) ou sous-échantillonner.
 
-- Le garde-fou < 3 pas renvoie tout à 3.0 (l.1002-1011) — les 7 scores neutres tant que la fenêtre est trop courte. À acter, parce que ça veut dire que les tout premiers pas ne « pilotent » γ avec rien de discriminant et ne permet pas d'enregistrer des synergies effectives pendant l'exploration randn en début de run.
+-  G existe désormais en deux gestes séparés. decide_G_adaptive_aware est appelée une fois par pas, avant d'écouter qui que ce soit — elle choisit l'archétype (sur la médiane des erreurs du pas, robuste aux voix aberrantes), consulte la mémoire, gère le veto et les transitions, et rend un plan. Puis evaluate_G_adaptive_aware écoute chaque strate une par une : G évalué sur son erreur, params sculptés par son erreur via la nouvelle loi unique compute_G_params. Sans plancher sur α, une erreur de 10 faisait exploser resonance à |G| ≈ 10⁸⁵ — cette bombe dormait déjà dans le code (l'erreur était déjà par strate en zone médiane, sans garde-fou) ; elle est maintenant bornée et documentée. Les petites variantes de params propres aux régimes repos/actif (le λ=0.3 du tanh au repos, le β "respirant" de resonance en régime actif) disparaissent dans l'unification : désormais le régime choisit l'instrument, la loi sculpte le toucher (voir l'aspect philosophique/conceptuel de chaque voie, voir si l'ancienne est plus alignée avec la considération ou si la nouvelle l'est autant ou plus).
+
+- S(t) extended mis à jour (sans gamma_n et G), en lien avec son docstring. Pas encore tous les archétypes et le switch sur O(t).
 
 ---
 
