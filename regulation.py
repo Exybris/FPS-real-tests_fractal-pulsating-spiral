@@ -98,7 +98,8 @@ def compute_G(x: Union[float, np.ndarray], archetype: str = "tanh",
         return alpha * tanh_part + (1 - alpha) * spiral_part
     
     elif archetype == "adaptive_aware":
-        # Mode adaptatif conscient - utilise dynamics.compute_G_adaptive_aware
+        # Mode adaptatif conscient - la vraie logique vit dans dynamics.py
+        # (paire decide_G_adaptive_aware / evaluate_G_adaptive_aware).
         # Pour éviter une dépendance circulaire, on retourne simplement tanh ici
         # La vraie logique adaptive_aware est dans dynamics.py
         lambda_val = params.get("lambda", 1.0)
@@ -110,42 +111,69 @@ def compute_G(x: Union[float, np.ndarray], archetype: str = "tanh",
         return compute_G(x, "tanh", params)
 
 
-def adapt_params_for_archetype(G_arch: str, gamma: float, error_magnitude: float) -> Dict[str, float]:
+def compute_G_params(G_arch: str, gamma: float, error_magnitude: float) -> Dict[str, float]:
     """
-    Adapte les paramètres selon l'archétype, γ et l'erreur.
-    Utilisé par compute_G_adaptive_aware pour ajuster dynamiquement les paramètres.
-    
+    LOI UNIQUE des paramètres de G — « une écoute par voix ».
+
+    Une seule source pour tous les chemins (régimes, veto, blend) : le même
+    archétype reçoit toujours le même toucher pour un même (γ, erreur).
+    Avant cette unification, les régimes utilisaient des formules inline et le
+    veto/blend passait par adapt_params_for_archetype, avec des valeurs
+    divergentes pour un même archétype (ex. resonance : β = 2+γ vs 1.5γ+0.5).
+
+    L'entrée error_magnitude est PAR STRATE (|Eₙ−Oₙ|) : la courbe se penche
+    vers chaque voix — pour resonance, l'enveloppe exp(−α·x²) s'élargit quand
+    la strate peine (α décroît avec l'erreur), pour que la voix la plus en
+    difficulté reste dans la portée de la régulation.
+
+    Garde-fous (nouveaux, documentés) :
+    - resonance α ≥ 0.05 : sans plancher, une grande erreur rendait α négatif
+      → exp(−α·x²) EXPLOSAIT au lieu de s'amortir.
+    - adaptive α ∈ [0,1] : c'est un poids de mélange tanh/spiral_log, hors de
+      [0,1] le « mélange » devenait une extrapolation non bornée.
+    - spiral_log α ≥ 0.05, β ≥ 0.1 ; tanh λ ≥ 0.1 : positivité minimale.
+
     Args:
         G_arch: archétype de régulation
-        gamma: valeur actuelle de gamma
-        error_magnitude: magnitude de l'erreur
-        
+        gamma: γ global du pas
+        error_magnitude: |erreur| de la strate écoutée (ou résumé du pas)
+
     Returns:
-        dict avec paramètres adaptés pour l'archétype
+        dict des paramètres pour compute_G
     """
+    err = abs(error_magnitude)
+
     if G_arch == "tanh":
-        return {"lambda": 0.5 + gamma * 0.5}
-    
+        return {"lambda": max(0.5 + 0.5 * gamma, 0.1)}
+
     elif G_arch == "resonance":
         return {
-            "alpha": 1.0 - 0.3 * error_magnitude,
-            "beta": 1.5 * gamma + 0.5
+            "alpha": max(1.0 - 0.3 * err, 0.05),
+            "beta": 2.0 + gamma
         }
-    
+
     elif G_arch == "spiral_log":
         return {
-            "alpha": gamma + 0.2 * error_magnitude,
-            "beta": 3.0 - gamma
+            "alpha": max(gamma + 0.1 * err, 0.05),
+            "beta": max(3.0 - 2.0 * gamma, 0.1)
         }
-    
+
     elif G_arch == "adaptive":
         return {
-            "lambda": gamma,
-            "alpha": 0.5 + 0.5 * (1 - error_magnitude)
+            "lambda": max(gamma, 0.1),
+            "alpha": float(np.clip(0.5 + 0.5 * (1.0 - err), 0.0, 1.0))
         }
-    
+
     else:
         return {"lambda": 1.0}
+
+
+def adapt_params_for_archetype(G_arch: str, gamma: float, error_magnitude: float) -> Dict[str, float]:
+    """
+    [COMPATIBILITÉ] Délègue à compute_G_params, la loi unique.
+    Conservée pour les appelants existants (notebooks, scripts d'analyse).
+    """
+    return compute_G_params(G_arch, gamma, error_magnitude)
 
 
 # ============== ENVELOPPES ADAPTATIVES ==============

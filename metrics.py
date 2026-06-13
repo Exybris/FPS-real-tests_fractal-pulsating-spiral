@@ -1198,8 +1198,17 @@ def calculate_all_scores(recent_history: List[Dict], config: Optional[Dict] = No
         if len(recent_history) >= window_size:
             scores[name] = compute_scores(recent_history[-window_size:])
     
-    # Pondération adaptative selon la maturité
-    maturity = len(recent_history) / max(total_steps, 100)  # Éviter division par 0
+    # Pondération adaptative selon la maturité (= avancement réel du run)
+    # L'âge du run = longueur de l'historique COMPLET reçu, rapporté au nombre
+    # de pas attendus (T/dt, depuis la config). L'ancienne formule
+    # len/max(len,100) était circulaire : combinée à la troncature [-50:] côté
+    # appelant, elle gelait la maturité à 0.5 pour toujours.
+    if config is not None:
+        sys_cfg = config.get('system', {})
+        expected_steps = sys_cfg.get('T', 100) / max(sys_cfg.get('dt', 0.1), 1e-9)
+    else:
+        expected_steps = 100
+    maturity = min(len(recent_history) / max(expected_steps, 1.0), 1.0)
     
     if maturity < 0.2:  # Début
         weights = {'immediate': 0.7, 'recent': 0.3}
@@ -1470,4 +1479,3 @@ def compute_multiple_tau(signals_dict: Dict[str, List[float]], dt: float) -> Dic
             result[f'tau_{signal_name}'] = dt  # Pas assez de données
     
     return result
-

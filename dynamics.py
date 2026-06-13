@@ -126,7 +126,7 @@ def compute_An(t: float, state: List[Dict], In_t: np.ndarray, F_n_t_An: np.ndarr
     Aₙ(t) = A₀ · σ(Iₙ(t)) · envₙ(x,t)  [si mode dynamique]
     Aₙ(t) = A₀ · σ(Iₙ(t))              [si mode statique]
     
-    où x = Eₙ(t) - Oₙ(t) pour l'enveloppe
+    où x = Eₙ(t) - Oₙ(t-dt) pour l'enveloppe
     
     Args:
         t: temps actuel
@@ -353,15 +353,8 @@ def compute_fn(t: float, state: List[Dict], An_t: np.ndarray, F_n_t_fn: np.ndarr
                 t_factor = 1.0 + 0.5 * np.sin(2 * np.pi * t / T)  # Oscillation temporelle
                 
                 # Moduler βₙ selon le contexte
-                # DÉSACTIVÉ : effort_factor causait des chutes à 0 non désirées
-                # effort_factor = 1.0
-                # if len(history) > 0:
-                #     recent_effort = history[-1].get('effort(t)', 0.0)
-                #     # Plus d'effort → moins de plasticité (stabilisation)
-                #     effort_factor = 1.0 / (1.0 + 0.1 * recent_effort)
-                
-                # beta_n_t = beta_n * A_factor * t_factor * effort_factor
-                beta_n_t = beta_n * A_factor * t_factor  # Sans effort_factor
+                # (effort_factor supprimé : causait des chutes à 0 non désirées)
+                beta_n_t = beta_n * A_factor * t_factor
                 
                 # Fréquence de base avec plasticité dynamique
 
@@ -381,10 +374,8 @@ def compute_fn(t: float, state: List[Dict], An_t: np.ndarray, F_n_t_fn: np.ndarr
         relaxation_factor = 0.5  # Facteur d'ajustement doux
         
         for n in range(N - 1):
-            # Ratio actuel entre fréquences adjacentes
             if fn_t[n] > 0:
-                current_ratio = fn_t[n + 1] / fn_t[n]
-                # Ajustement vers le ratio cible
+                # Ajustement vers le ratio cible fₙ₊₁ ≈ r(t)·fₙ
                 target_fn = r_t * fn_t[n]
                 fn_t[n + 1] = fn_t[n + 1] * (1 - relaxation_factor) + target_fn * relaxation_factor
     for n in range(N):
@@ -430,7 +421,7 @@ def compute_phi_n(t: float, state: List[Dict], config: Dict) -> np.ndarray:
         theta = config.get('spiral', {}).get('theta', 0.0)
         
         # Calculer le ratio spiralé r(t) selon FPS_Paper
-        r_t = phi_golden + epsilon * np.sin(2 * np.pi * omega * t + theta)
+        r_t = compute_r(t, phi_golden, epsilon, omega, theta)
         
         # Mode signatures : chaque strate a sa "voix propre"
         signature_mode = config.get('spiral', {}).get('signature_mode', 'individual')
@@ -770,7 +761,34 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
     
         # Enregistrer ce qu'on explore
         journal['exploration_log'].append({'t': t, 'gamma': gamma, 'phase': 'systematic'})
-    
+
+        # L'exploration n'est plus aveugle : dès que les scores deviennent
+        # informatifs (≥6 pas, pas 5 : enregistré, mais fenêtre = floor(5/2) = 2 → compute_scores sur 2 points → < 3 → neutre 3.0. Un seul point neutre.), on enregistre le couple (γ, G) réellement observé
+        # au pas précédent et sa performance — même structure et même formule de
+        # synergie que le chemin principal, pour que les combinaisons efficaces
+        # du balayage soient repérables après la phase d'exploration.
+        if len(history) >= 5:
+            obs_G_arch = history[-1].get('G_arch_used', 'tanh')
+            obs_gamma = history[-1].get('gamma', gamma)
+            obs_scores = metrics.calculate_all_scores(history, config)
+            obs_perf = np.mean(list(obs_scores['current'].values()))
+            obs_key = (round(obs_gamma, 1), obs_G_arch)
+
+            if obs_key not in journal['coupled_states']:
+                journal['coupled_states'][obs_key] = {
+                    'performances': [],
+                    'first_seen': t,
+                    'synergy_score': 0
+                }
+            journal['coupled_states'][obs_key]['performances'].append(obs_perf)
+
+            if len(journal['coupled_states'][obs_key]['performances']) >= 5:
+                perfs = journal['coupled_states'][obs_key]['performances'][-10:]
+                mean_perf = np.mean(perfs)
+                stability = 1 / (1 + np.std(perfs))
+                growth = np.polyfit(range(len(perfs)), perfs, 1)[0] if len(perfs) > 1 else 0
+                journal['coupled_states'][obs_key]['synergy_score'] = mean_perf * stability * (1 + growth)
+
         return gamma, 'exploration', journal
     
     # 1. OBSERVER L'ÉTAT ACTUEL DE G
@@ -778,8 +796,11 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
     gamma_current = history[-1].get('gamma', 1.0) if history else 1.0
     
     # 2. CALCULER LA PERFORMANCE SYSTÈME
-    recent_history = history[-50:]
-    scores = metrics.calculate_all_scores(recent_history, config)
+    # Historique COMPLET : calculate_all_scores fenêtre elle-même (immediate/recent/
+    # medium/global) et a besoin de l'âge réel du run pour la maturité.
+    # L'ancienne troncature [-50:] gelait l'horizon : passé 50 pas, le système
+    # vivait dans un présent perpétuel et la fenêtre "global" n'existait jamais.
+    scores = metrics.calculate_all_scores(history, config)
     current_scores = scores['current']
     system_performance_score = np.mean(list(current_scores.values()))
     
@@ -947,10 +968,10 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
     best_synergy = None
     best_synergy_score = 0
     
-    for state_key, state_info in journal['coupled_states'].items():
+    for candidate_key, state_info in journal['coupled_states'].items():
         if state_info['synergy_score'] > best_synergy_score:
             best_synergy_score = state_info['synergy_score']
-            best_synergy = state_key
+            best_synergy = candidate_key
     
     # Vérifier si on est au plateau parfait
     all_scores_5 = all(score >= 5 for score in current_scores.values())
@@ -1032,17 +1053,37 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
     return np.clip(gamma, 0.1, 1.0), journal['current_regime'], journal
 
 
-def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
-                              regulation_state: Dict, history: List[Dict], config: Dict,
-                              allow_soft_preference: bool = True,
-                              score_pair_now: bool = False):
+def decide_G_adaptive_aware(t: float, gamma_current: float,
+                             regulation_state: Dict, history: List[Dict], config: Dict,
+                             error_summary: float):
     """
-    G(x) adaptatif pleinement conscient de γ et de leur danse commune.
-    
+    DÉCISION de régulation, une fois PAR PAS — « un style par instant ».
+
+    Choisit l'archétype G du pas (régimes de γ + veto d'efficacité + machine
+    à transitions/blend) et fait avancer la mémoire UNE fois. L'évaluation
+    par strate est faite séparément par evaluate_G_adaptive_aware — « une
+    écoute par voix » : chaque strate reçoit G sur SA propre erreur, avec des
+    params modulés par SA propre erreur (loi unique regulation.compute_G_params).
+
+    Remplace l'ancien compute_G_adaptive_aware appelé N fois par pas, qui
+    faisait avancer adaptation_cycles N fois, pouvait accomplir une transition
+    ENTRE deux strates d'un même instant, et donnait au même archétype des
+    params différents selon le chemin (inline vs adapt_params_for_archetype).
+
+    Args:
+        t: temps actuel
+        gamma_current: γ global du pas
+        regulation_state: état adaptatif persistant (porte regulation_memory)
+        history: historique complet
+        config: configuration
+        error_summary: résumé de l'erreur du pas — médiane de |Eₙ−Oₙ|,
+                       robuste aux strates aberrantes
+
     Returns:
-        - G_value: valeur de régulation
-        - G_arch: archétype utilisé
-        - G_params: paramètres utilisés (pour logging)
+        plan (dict) : {'arch_old', 'arch_new', 'blend_factor', 'G_arch_used'}
+        - blend_factor ∈ [0,1] : 1.0 = pleinement arch_new (cas sans blend)
+        - G_arch_used : étiquette du pas (composante dominante du mélange),
+          UNE étiquette cohérente pour tout l'instant.
     """
     
     # Récupérer la mémoire de régulation
@@ -1061,29 +1102,37 @@ def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
     reg_memory = regulation_state['regulation_state']['regulation_memory']
     
     # 1. ANALYSER L'EFFICACITÉ CONTEXTUELLE
-    if len(history) >= 30:
-        recent = history[-30:]
-        
-        for i, h in enumerate(recent[:-1]):
-            if i + 1 < len(recent):
-                # Contexte
-                g_arch = h.get('G_arch_used', 'tanh')
-                gamma = h.get('gamma', 1.0)
-                error_before = h.get('mean_abs_error', 1.0)
-                error_after = recent[i+1].get('mean_abs_error', 1.0)
-                
-                # Efficacité
-                effectiveness = (error_before - error_after) / (error_before + 0.01)
-                
-                # Clé contextuelle enrichie
-                gamma_bucket = round(gamma, 1)
-                error_bucket = 'low' if abs(error_before) < 0.1 else 'medium' if abs(error_before) < 0.5 else 'high'
-                context_key = (g_arch, gamma_bucket, error_bucket)
-                
-                if context_key not in reg_memory['effectiveness_by_context']:
-                    reg_memory['effectiveness_by_context'][context_key] = []
-                
-                reg_memory['effectiveness_by_context'][context_key].append(effectiveness)
+    # Chaque paire (pas i → i+1) n'est traitée qu'UNE seule fois, gardée par le
+    # timestamp du dernier pas. L'ancienne version re-balayait history[-30:] à
+    # chaque appel — et la fonction est appelée N fois par pas (une par strate) :
+    # chaque observation était donc dupliquée jusqu'à ~29×N fois, et la moyenne
+    # [-5:] du veto ne voyait plus que les toutes dernières paires répétées.
+    # Bonus : l'apprentissage démarre dès 2 pas (plus d'attente des 30 premiers).
+    if 'last_effectiveness_t' not in reg_memory:
+        reg_memory['last_effectiveness_t'] = None
+
+    if len(history) >= 2:
+        h_prev, h_last = history[-2], history[-1]
+        t_last = h_last.get('t', None)
+        if t_last is not None and t_last != reg_memory['last_effectiveness_t']:
+            g_arch = h_prev.get('G_arch_used', 'tanh')
+            gamma = h_prev.get('gamma', 1.0)
+            error_before = h_prev.get('mean_abs_error', 1.0)
+            error_after = h_last.get('mean_abs_error', 1.0)
+
+            # Efficacité
+            effectiveness = (error_before - error_after) / (error_before + 0.01)
+
+            # Clé contextuelle enrichie
+            gamma_bucket_eff = round(gamma, 1)
+            error_bucket_eff = 'low' if abs(error_before) < 0.1 else 'medium' if abs(error_before) < 0.5 else 'high'
+            context_key = (g_arch, gamma_bucket_eff, error_bucket_eff)
+
+            if context_key not in reg_memory['effectiveness_by_context']:
+                reg_memory['effectiveness_by_context'][context_key] = []
+
+            reg_memory['effectiveness_by_context'][context_key].append(effectiveness)
+            reg_memory['last_effectiveness_t'] = t_last
     
     # 2. OBSERVER LES SIGNAUX DE GAMMA
     gamma_signals = []
@@ -1105,12 +1154,12 @@ def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
             elif np.all(diffs < 0):
                 gamma_signals.append('falling')
     
-    # 3. DÉCIDER DE L'ARCHÉTYPE G
+    # 3. DÉCIDER DE L'ARCHÉTYPE G (choix PUR : les params ne se décident plus ici,
+    # ils sont produits par la loi unique regulation.compute_G_params au moment de
+    # l'écoute de chaque strate — sur SON erreur). La logique de sélection est
+    # inchangée ; error_magnitude est le résumé du pas (médiane de |Eₙ−Oₙ|).
     gamma_bucket = round(gamma_current, 1)
-    error_magnitude = abs(error)
-    
-    # Initialiser params par défaut pour éviter l'erreur
-    params = {"lambda": 1.0, "alpha": 1.0, "beta": 2.0}
+    error_magnitude = abs(error_summary)
     
     # Ajouter de la diversité : utiliser le temps pour varier les choix initiaux
     exploration_factor = np.sin(0.1 * t) * 0.5 + 0.5  # Oscille entre 0 et 1
@@ -1121,10 +1170,8 @@ def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
         if error_magnitude < 0.1:
             # Alterner entre tanh et adaptive selon le temps
             G_arch = "tanh" if exploration_factor < 0.5 else "adaptive"
-            params = {"lambda": 0.3} if G_arch == "tanh" else {"lambda": 0.5, "alpha": 0.8}
         else:
             G_arch = "adaptive"  # Mix doux
-            params = {"lambda": 0.5, "alpha": 0.8}
             
     elif gamma_bucket > 0.7:
         # γ élevé = actif → Régulation dynamique
@@ -1132,20 +1179,11 @@ def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
             # γ signale un problème → Changer de stratégie
             if reg_memory['current_G_arch'] == 'resonance':
                 G_arch = "spiral_log"  # Essayer autre chose
-                params = {"alpha": 1.0, "beta": 2.0}  # Params par défaut pour spiral_log
             else:
                 G_arch = "resonance"
-                params = {"alpha": 1.0, "beta": 2.0}  # Params par défaut pour resonance
         else:
             # γ stable haute → Alterner entre resonance et spiral_log
             G_arch = "resonance" if exploration_factor < 0.6 else "spiral_log"
-            if G_arch == "resonance":
-                params = {
-                    "alpha": 1.0 - 0.5 * error_magnitude,  # Adaptatif à l'erreur
-                    "beta": 2.0 * gamma_current * (1 + 0.1 * np.sin(0.1 * t))
-                }
-            else:
-                params = {"alpha": 1.0, "beta": 2.0}
             
     else:
         # Zone intermédiaire → Créativité maximale avec rotation
@@ -1153,24 +1191,6 @@ def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
         # Utiliser le cycle d'adaptation pour varier
         choice_idx = (reg_memory['adaptation_cycles'] + int(exploration_factor * 4)) % 4
         G_arch = choices[choice_idx]
-        
-        if G_arch == "spiral_log":
-            params = {
-                "alpha": gamma_current + 0.1 * error_magnitude,
-                "beta": 3.0 - 2.0 * gamma_current
-            }
-        elif G_arch == "adaptive":
-            params = {
-                "lambda": gamma_current,
-                "alpha": 0.5 + 0.5 * (1 - error_magnitude)
-            }
-        elif G_arch == "resonance":
-            params = {
-                "alpha": 1.0 - 0.3 * error_magnitude,
-                "beta": 2.0 + gamma_current
-            }
-        else:  # tanh
-            params = {"lambda": 0.5 + 0.5 * gamma_current}
     
     # 4. VÉRIFIER L'EFFICACITÉ HISTORIQUE
     error_bucket = 'low' if error_magnitude < 0.1 else 'medium' if error_magnitude < 0.5 else 'high'
@@ -1200,46 +1220,58 @@ def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
                 
                 if best_alt:
                     G_arch = best_alt
-                    # Ajuster les paramètres selon l'archétype
-                    params = regulation.adapt_params_for_archetype(G_arch, gamma_current, error_magnitude)
+                    # (Les params viendront de la loi unique à l'écoute de chaque strate.)
     
     # 5. TRANSITION DOUCE SI CHANGEMENT
     if G_arch != reg_memory['current_G_arch']:
-        # Enregistrer la transition
-        reg_memory['G_transition_history'].append({
-            't': t,
-            'from': reg_memory['current_G_arch'],
-            'to': G_arch,
-            'gamma': gamma_current,
-            'reason': gamma_signals[0] if gamma_signals else 'performance'
-        })
-        
+        # Fenêtre réfractaire exprimée en PAS : 10 pas = 10·dt unités de temps.
+        # (L'ancien seuil "< 10" portait sur t en unités de temps : avec dt=0.1,
+        # le commentaire "10 steps" durait en réalité 100 pas.)
+        dt_cfg = config.get('system', {}).get('dt', 0.1)
+        blend_window = 10 * dt_cfg
+
         # Transition progressive (pas de changement brutal)
-        if t - reg_memory['last_transition_time'] < 10:  # Réduit de 50 à 10 steps
-            # Trop tôt pour changer complètement
-            blend_factor = (t - reg_memory['last_transition_time']) / 10
+        if t - reg_memory['last_transition_time'] < blend_window:
+            # Trop tôt pour changer complètement → plan de mélange.
+            # Aucune valeur de G n'est calculée ici : l'écoute (par strate,
+            # sur l'erreur de chaque voix) est faite par evaluate_G_adaptive_aware.
+            blend_factor = (t - reg_memory['last_transition_time']) / blend_window
+            arch_old = reg_memory['current_G_arch']
+            arch_new = G_arch
             
-            # Calculer les deux G et mélanger
-            G_old = regulation.compute_G(error, reg_memory['current_G_arch'], 
-                            regulation.adapt_params_for_archetype(reg_memory['current_G_arch'], gamma_current, error_magnitude))
-            G_new = regulation.compute_G(error, G_arch, params)
-            
-            G_value = G_old * (1 - blend_factor) + G_new * blend_factor
-            
-            # Garder l'ancien archétype pour l'instant
-            actual_G_arch = reg_memory['current_G_arch']
+            # Attribution HONNÊTE du mélange : la composante dominante.
+            # (L'ancienne version loguait toujours l'ancien archétype : la mémoire
+            # d'efficacité attribuait un G majoritairement nouveau au mauvais arch.)
+            actual_G_arch = arch_old if blend_factor < 0.5 else arch_new
         else:
-            # Transition complète
-            G_value = regulation.compute_G(error, G_arch, params)
+            # Transition complète — enregistrée UNE seule fois, ici.
+            # (L'ancienne version appendait un enregistrement à CHAQUE appel tant
+            # que l'archétype proposé différait : ~N enregistrements par pas
+            # pendant tout le blend, pour un seul changement réel.)
+            reg_memory['G_transition_history'].append({
+                't': t,
+                'from': reg_memory['current_G_arch'],
+                'to': G_arch,
+                'gamma': gamma_current,
+                'reason': gamma_signals[0] if gamma_signals else 'performance'
+            })
             reg_memory['current_G_arch'] = G_arch
             reg_memory['last_transition_time'] = t
+            arch_old = G_arch
+            arch_new = G_arch
+            blend_factor = 1.0
             actual_G_arch = G_arch
     else:
         # Pas de changement
-        G_value = regulation.compute_G(error, G_arch, params)
+        arch_old = G_arch
+        arch_new = G_arch
+        blend_factor = 1.0
         actual_G_arch = G_arch
     
-    # 6. MISE À JOUR DE LA MÉMOIRE
+    # 6. MISE À JOUR DE LA MÉMOIRE — une fois par PAS
+    # (Avant : la fonction était appelée N fois par pas, donc adaptation_cycles
+    # avançait N fois par instant et la rotation créative défilait À TRAVERS
+    # les strates d'un même pas, par accident de compteur.)
     reg_memory['adaptation_cycles'] += 1
     
     # Enregistrer la préférence γ → G
@@ -1252,7 +1284,47 @@ def compute_G_adaptive_aware(error: float, t: float, gamma_current: float,
     # Incrémenter le compteur d'utilisation
     reg_memory['preferred_G_by_gamma'][gamma_bucket][actual_G_arch] += 1
 
-    return G_value, actual_G_arch, params
+    return {
+        'arch_old': arch_old,
+        'arch_new': arch_new,
+        'blend_factor': blend_factor,
+        'G_arch_used': actual_G_arch
+    }
+
+
+def evaluate_G_adaptive_aware(error_n: float, gamma_current: float, plan: Dict) -> float:
+    """
+    ÉCOUTE d'une strate — « une écoute par voix ».
+
+    Applique le plan du pas (decide_G_adaptive_aware) à UNE strate : G est
+    évalué sur l'erreur de CETTE voix, avec des params modulés par CETTE
+    erreur via la loi unique (regulation.compute_G_params). Pour resonance,
+    par exemple, l'enveloppe s'élargit pour une strate qui peine : la courbe
+    se penche vers la voix au lieu de l'exclure de sa portée.
+
+    Pendant un blend, les DEUX archétypes sont évalués sur l'erreur de la
+    strate (chacun avec ses params modulés par elle) puis mélangés selon le
+    blend_factor du pas — même mélange pour toutes les voix, même instant.
+
+    Args:
+        error_n: erreur Eₙ−Oₙ de la strate
+        gamma_current: γ global du pas
+        plan: plan du pas retourné par decide_G_adaptive_aware
+
+    Returns:
+        float: valeur de régulation pour cette strate
+    """
+    err_mag = abs(error_n)
+    params_new = regulation.compute_G_params(plan['arch_new'], gamma_current, err_mag)
+    G_new = regulation.compute_G(error_n, plan['arch_new'], params_new)
+
+    bf = plan['blend_factor']
+    if bf >= 1.0 or plan['arch_old'] == plan['arch_new']:
+        return G_new
+
+    params_old = regulation.compute_G_params(plan['arch_old'], gamma_current, err_mag)
+    G_old = regulation.compute_G(error_n, plan['arch_old'], params_old)
+    return G_old * (1 - bf) + G_new * bf
 
 
 # ============== SORTIES OBSERVÉE ET ATTENDUE ==============
@@ -1261,8 +1333,9 @@ def compute_On(t: float, state: List[Dict], An_t: np.ndarray, fn_t: np.ndarray,
                phi_n_t: np.ndarray, phase_inst, config: Dict) -> np.ndarray:
     """
     Calcule la sortie observée pour chaque strate.
-    O(t) = A(t) · sin(2π·cumsum(f(t)·dt) + φ(t))
-    Version notebook : sans gamma, avec intégration cumsum des fréquences.
+    O(t) = A(t) · sin(2π·∫f(t)·dt + φ(t))
+    Version notebook : sans gamma, avec intégration temporelle des fréquences
+    (phase_inst = phase_acc + φ, où phase_acc += 2π·fₙ·dt à chaque pas).
     """
     N = len(state)
     On_t = np.zeros(N)
@@ -1311,7 +1384,7 @@ def compute_phi_adaptive(effort_current, effort_history, config):
     return phi
 
 def compute_En(t: float, state: List[Dict], history: List[Dict], config: Dict,
-               phi: float = None, history_align: List[float] = None, 
+               phi: float = None, 
                effort_history: List[float] = None) -> np.ndarray:
     """
     Calcule la sortie attendue (harmonique cible) pour chaque strate.
@@ -1327,7 +1400,6 @@ def compute_En(t: float, state: List[Dict], history: List[Dict], config: Dict,
         history: historique
         config: configuration
         phi: valeur de phi pré-calculée (si None, calculé en interne)
-        history_align: historique des alignements En≈On
         effort_history: historique de l'effort (pour phi adaptatif)
     
     Returns:
@@ -1338,7 +1410,6 @@ def compute_En(t: float, state: List[Dict], history: List[Dict], config: Dict,
     
     # Paramètres de l'attracteur inertiel
     lambda_E = config.get('regulation', {}).get('lambda_E', 0.05)
-    k_spacing = config.get('regulation', {}).get('k_spacing', 0.0)
     dt = config.get('system', {}).get('dt', 0.1)
     
     # CALCUL DE PHI (alignement notebook)
@@ -1347,8 +1418,6 @@ def compute_En(t: float, state: List[Dict], history: List[Dict], config: Dict,
         
         if phi_mode == 'adaptive':
             if len(history) > 0 and 'effort(t)' in history[-1]:
-                effort_current = history[-1].get('effort(t)', 0.0)
-            elif len(history) > 0 and 'effort(t)' in history[-1]:
                 effort_current = history[-1].get('effort(t)', 0.0)
             else:
                 effort_current = 0.0
@@ -1367,12 +1436,7 @@ def compute_En(t: float, state: List[Dict], history: List[Dict], config: Dict,
         else:
             phi = config.get('regulation', {}).get('phi_fixed_value', 1.618)
     
-    # Adapter lambda selon le nombre d'alignements (si k_spacing > 0)
-    if history_align is not None and k_spacing > 0:
-        n_alignments = len(history_align)
-        lambda_dyn = lambda_E / (1 + k_spacing * n_alignments)
-    else:
-        lambda_dyn = lambda_E
+    lambda_dyn = lambda_E
     
     if len(history) > 0:
         # Récupérer les valeurs précédentes
@@ -1425,7 +1489,7 @@ def compute_C(t: float, phi_n_array: np.ndarray) -> float:
     """
     Calcule le coefficient d'accord spiralé selon FPS_Paper.
     
-    C(t) = (1/N) · Σ cos(φₙ₊₁ - φₙ)
+    C(t) = (1/(N-1)) · Σ cos(φₙ₊₁ - φₙ)
     
     Pour phases spiralantes (sans modulo), normalise les différences
     pour mesurer la cohérence locale plutôt que l'alignement absolu.
@@ -1491,86 +1555,21 @@ def compute_A_spiral(t: float, C_t: float, A_t: float) -> float:
     return C_t * A_t
 
 
-# ============== FEEDBACK ==============
+# ============== SATURANTE ==============
 
-def compute_Fn(t: float, beta_n: float, On_t: float, En_t: float, gamma_t: float, 
-               An_t: float, fn_t: float, config: dict) -> float:
-    """
-    Calcule le feedback pour une strate.
-    
-    Fₙ(t) = βₙ · G(Oₙ(t) - Eₙ(t)) · γ(t)
-    où G peut être :
-    - Identité (pas de régulation)
-    - Archétype simple (tanh, sinc, resonance, adaptive)
-    - Gn complet avec sinc et enveloppe
-    
-    Args:
-        t: temps actuel
-        beta_n: plasticité de la strate
-        On_t: sortie observée
-        En_t: sortie attendue
-        gamma_t: latence globale
-        An_t: amplitude actuelle
-        fn_t: fréquence actuelle
-        config: configuration
-    
-    Returns:
-        float: valeur de feedback
-    """
-    error = On_t - En_t
-    
-    # Récupérer le mode de feedback depuis config
-    feedback_mode = config.get('regulation', {}).get('feedback_mode', 'simple')
-    
-    if feedback_mode == 'simple':
-        # Formule de base sans régulation G
-        return beta_n * error * gamma_t
-    
-    elif feedback_mode == 'archetype':
-        # Utiliser un archétype G simple
-        G_arch = config.get('regulation', {}).get('G_arch', 'tanh')
-        G_params = {
-            'lambda': config.get('regulation', {}).get('lambda', 1.0),
-            'alpha': config.get('regulation', {}).get('alpha', 1.0),
-            'beta': config.get('regulation', {}).get('beta', 2.0)
-        }
-        G_feedback = regulation.compute_G(error, G_arch, G_params)
-        return beta_n * G_feedback * gamma_t
-    
-    elif feedback_mode == 'gn_full':
-        # Utiliser Gn complet avec sinc et enveloppe
-        env_config = config.get('enveloppe', {})
-        T = config['system']['T']
-        
-        # Centre et largeur de l'enveloppe
-        mu_n_t = regulation.compute_mu_n(t, env_config.get('env_mode', 'static'), 
-                                        env_config.get('mu_n', 0.0))
-        sigma_n_t = regulation.compute_sigma_n(t, env_config.get('env_mode', 'static'), T,
-                                              env_config.get('sigma_n_static', 0.1))
-        
-        # Type d'enveloppe (gaussienne ou sigmoïde)
-        env_type = env_config.get('env_type', 'gaussienne')
-        
-        # Calcul de l'enveloppe
-        env_n = regulation.compute_env_n(error, t, env_config.get('env_mode', 'static'),
-                                        sigma_n_t, mu_n_t, T, env_type)
-        
-        # Régulation complète avec Gn
-        G_feedback = regulation.compute_Gn(error, t, An_t, fn_t, mu_n_t, env_n)
-        return beta_n * G_feedback * gamma_t
-    
-    else:
-        # Mode non reconnu, fallback sur simple
-        print(f"⚠️ Mode de feedback '{feedback_mode}' non reconnu, utilisation du mode simple")
-        return beta_n * error * gamma_t
-
+def _saturante(x):
+    """Saturante douce, plafond 1 (asymptote, jamais atteinte).
+    Règle la CONCENTRATION de l'attention dans S(t) ; n'affecte pas la
+    conservation d'énergie — la couche de recentrage renormalise à mean=1."""
+    x = np.asarray(x, dtype=float)
+    return x / (1.0 + x)
 
 # ============== SIGNAL GLOBAL ==============
 
 def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray, 
               phi_n_array: np.ndarray, phase_inst, config: Dict, gamma_n_t: np.ndarray = None) -> float:
     """
-    Calcule le signal global du système selon FPS Paper.
+    Calcule les filtres perceptifs du système selon le Notebook.
     
     Args:
         t: temps actuel
@@ -1583,63 +1582,87 @@ def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray,
     Returns:
         float: signal global S(t)
     
-    Modes:
-        - "simple": Σₙ Aₙ(t)·sin(2π·fₙ(t)·t + φₙ(t))
-        - "extended": S(t) = Σₙ [Aₙ(t)·sin(2π·fₙ(t)·t + φₙ(t))·γₙ(t)]·G(Eₙ(t) - Oₙ(t))
+    Filtre perceptif S(t) — agrégation pondérée de O(t) qui met en exergue
+    les strates en peine, SANS jamais les désigner ni leur imposer de cible.
+
+    Mode "simple" (neutre)   : S(t) = O(t), aucune loupe.
+    Mode "extended"          : pondéré par l'erreur de régulation (ci-dessous).
+
+    Principe (séparation perception / action) :
+        S(t) appartient à la couche PERCEPTION. Elle ne corrige rien — elle
+        attend simplement plus fort là où ça pèche. Les outils d'ACTION
+        (γₙ, G_adaptive_aware) n'ont donc rien à faire ici : ils vivent dans
+        le feedback. S(t) ne porte qu'une PONDÉRATION, jamais une correction.
+
+    Mécanique — trois couches aux rôles indépendants :
+
+    1. Erreur RELATIVE     err_n = |Eₙ − Oₙ| / Aₙ
+       Divisée par l'amplitude : juste pour les grandes comme les petites
+       strates (une grosse voix a de grosses erreurs sans être "en peine").
+
+    2. Poids BORNÉ [0.1, 1]   poids_n = 0.1 + 0.9 · saturante(err_n / échelle)
+       échelle = max(médiane(err), ε) : seuil ADAPTATIF — "combien de fois
+       plus loin que la norme du groupe à cet instant" (médiane robuste).
+       La saturante (plafond 1) empêche une strate très éloignée de manger
+       toute la lumière ; le plancher 0.1 garantit que personne n'est jamais
+       réduit au silence (on préserve les chemins discrets, anti-rigidité).
+
+    3. Recentrage sur 1    echelle_n = poids_n / moyenne(poids)
+       La moyenne des poids devient exactement 1 : S(t) garde la même
+       intensité globale que O(t). Les métriques n'ont donc pas à zoomer /
+       dézoomer — c'est une REDISTRIBUTION d'attention à énergie conservée,
+       ni amplification ni atténuation.
+
+    S(t) = Σₙ  Aₙ · sin(2π·∫fₙ·dt + φₙ) · echelle_n
+
+    Ce qui remonte aux contrôleurs n'est qu'un SCORE GLOBAL calculé sur S(t) :
+    ils ignorent que le signal est pondéré et quelles strates pèchent. En
+    cherchant à "améliorer ce signal", ils soulagent naturellement là où ça
+    pèse — sans cible imposée. Conditions de l'émergence, pas directive.
+
+    Généralisation : les autres filtres (innovation, résilience, fluidité…)
+    suivent EXACTEMENT ce gabarit. On change seulement ce qui entre dans err_n
+    (l'inverse du score de la métrique concernée, par strate). Le choix du
+    filtre actif se fait par un switch piloté par la métrique la plus en peine,
+    mesurée sur O(t) — repère neutre.
     """
     mode = config.get('system', {}).get('signal_mode', 'simple')
     N = len(An_array)
 
     if mode == "simple":
+        # S(t) = Σₙ  Aₙ · sin(2π·∫fₙ·dt + φₙ)
         S_t = 0.0
         for n in range(N):
             S_t += An_array[n] * np.sin(phase_inst[n])
         return S_t
     
     elif mode == "extended":
-        # Version complète selon FPS Paper Chapitre 4
-        # S(t) = Σₙ [Aₙ(t)·sin(2π·fₙ(t)·t + φₙ(t))·γₙ(t)]·G(Eₙ(t) - Oₙ(t))
-        
-        state = config.get('state', [])
+        # S(t) = Σₙ Oₙ · echelle_n   (Oₙ = Aₙ·sin(phase_inst[n]))
+        # 3 couches : err relative → poids borné [0.1,1] → recentrage sur 1.
+        # γₙ et G ne vivent PLUS ici : S(t) ne porte qu'une pondération
+        # à énergie conservée, jamais une correction.
+        state   = config.get('state', [])
         history = config.get('history', [])
-        
-        # Vérifier que state est valide
-        if not state or len(state) != N:
-            # Fallback sur mode simple si pas d'état complet
-            return compute_S(t, An_array, fn_array, phi_n_array, phase_inst, {'system': {'signal_mode': 'simple'}})
-        
-        # Utiliser gamma_n_t pré-calculé si fourni, sinon recalculer
-        if gamma_n_t is None:
-            gamma_n_t = compute_gamma_n(t, state, config, history=history,
-                                       An_array=An_array, fn_array=fn_array)
-        En_t = compute_En(t, state, history, config)
+        if not state or len(state) != N:               # fallback prudent
+            return compute_S(t, An_array, fn_array, phi_n_array, phase_inst,
+                             {'system': {'signal_mode': 'simple'}})
+
+        eps  = config.get('regulation', {}).get('epsilon_S', 1e-9)
         On_t = compute_On(t, state, An_array, fn_array, phi_n_array, phase_inst, config)
-        
-        S_t = 0.0
-        for n in range(N):
-            # Contribution de base avec latence selon FPS Paper
-            sin_component = np.sin(phase_inst[n])
-            base_contribution = An_array[n] * sin_component * gamma_n_t[n]
-            
-            # Calcul de G(Eₙ - Oₙ) selon FPS Paper
-            error = En_t[n] - On_t[n]
-            
-            # Paramètres pour la fonction G
-            G_arch = config.get('regulation', {}).get('G_arch', 'tanh')
-            G_params = {
-                'lambda': config.get('regulation', {}).get('lambda', 1.0),
-                'alpha': config.get('regulation', {}).get('alpha', 1.0),
-                'beta': config.get('regulation', {}).get('beta', 2.0)
-            }
-            
-            # Calculer G(error)
-            import regulation
-            G_value = regulation.compute_G(error, G_arch, G_params)
-            
-            # Contribution finale selon FPS Paper : chaque terme est multiplié par G
-            S_t += base_contribution * G_value
-        
-        return S_t
+        En_t = compute_En(t, state, history, config)
+
+        # 1. erreur RELATIVE (juste entre grandes et petites strates)
+        amp = np.maximum(np.abs(np.asarray(An_array, float)), eps)
+        err = np.abs(np.asarray(En_t, float) - np.asarray(On_t, float)) / amp
+
+        # 2. poids BORNÉ [0.1,1], seuil adaptatif (médiane robuste)
+        echelle = max(float(np.median(err)), eps)
+        poids   = 0.1 + 0.9 * _saturante(err / echelle)
+
+        # 3. recentrage sur 1 → mean(poids)=1, énergie conservée
+        echelle_n = poids / np.mean(poids)
+
+        return float(np.sum(np.asarray(On_t, float) * echelle_n))
     
     else:
         # Par défaut, mode simple
