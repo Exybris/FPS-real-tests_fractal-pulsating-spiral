@@ -36,21 +36,58 @@ from utils import deep_convert
 
 def compute_cpu_step(start_time: float, end_time: float, N: int) -> float:
     """
-    Calcule le temps CPU normalisé par pas et par strate.
-    
+    Temps MUR mesuré par pas et par strate — PROFILAGE UNIQUEMENT.
+
     cpu_step = (end_time - start_time) / N
-    
+
+    ⚠️ Non reproductible et dépendant de la machine (time.perf_counter()).
+    Ne DOIT PAS piloter le contrôle : pour le score cpu_cost qui alimente γ,
+    utiliser compute_cpu_step_deterministic(N), sinon le temps mur fuit dans
+    la sélection de γ et casse la parité bit-à-bit avec l'oracle.
+
     Args:
         start_time: temps début (time.perf_counter())
         end_time: temps fin
         N: nombre de strates
-    
+
     Returns:
-        float: temps CPU moyen par strate en secondes
+        float: temps mur moyen par strate en secondes (info de profilage)
     """
     if N <= 0:
         return 0.0
     return (end_time - start_time) / N
+
+
+# Coût nominal d'une opération de couplage (secondes "modèle", indépendant de
+# la machine). Calibré pour que les tailles N usuelles tombent dans une bande
+# de score réaliste (N≈100 → ~1e-4 → cpu_cost 5), comme le temps mur observé.
+CPU_NOMINAL_OP_COST = 1e-6
+
+
+def compute_cpu_step_deterministic(N: int, op_cost: float = CPU_NOMINAL_OP_COST) -> float:
+    """
+    Coût CPU par strate, DÉTERMINISTE et reproductible.
+
+    Remplace le temps mur pour tout ce qui pilote le contrôle (score cpu_cost
+    → performance système → synergie → γ), afin que deux runs identiques
+    produisent exactement les mêmes décisions, sur n'importe quelle machine.
+
+    Modèle : le travail par strate est dominé par la somme de couplage sur les
+    N strates → O(N) opérations par strate. On renvoie op_cost * N : une
+    estimation RELATIVE, machine-indépendante, identique d'un run à l'autre.
+    Le temps mur réel reste mesuré et loggé à part (cf. compute_cpu_step), mais
+    ne nourrit plus aucune décision.
+
+    Args:
+        N: nombre de strates
+        op_cost: coût nominal d'une opération de couplage (s "modèle")
+
+    Returns:
+        float: coût CPU par strate déterministe
+    """
+    if N <= 0:
+        return 0.0
+    return op_cost * N
 
 
 # ============== MÉTRIQUES D'EFFORT ==============
@@ -154,7 +191,7 @@ def compute_effort_status(effort_t: float, effort_history: List[float],
         if std_long < 0.01:
             # Effort constant - utiliser les seuils de config
             thresholds = config.get('to_calibrate', {})
-            if mean_recent > thresholds.get('effort_chronique_threshold', 1.5):
+            if mean_recent > thresholds.get('effort_chronique_threshold', 75.0):
                 return "chronique"
         else:
             # Effort variable - utiliser la logique adaptative
@@ -168,11 +205,11 @@ def compute_effort_status(effort_t: float, effort_history: List[float],
     thresholds = config.get('to_calibrate', {})
     
     # Seuil transitoire
-    if effort_t > thresholds.get('effort_transitoire_threshold', 2.0):
+    if effort_t > thresholds.get('effort_transitoire_threshold', 150.0):
         return "transitoire"
     
     # Seuil chronique sur la moyenne
-    if mean_recent > thresholds.get('effort_chronique_threshold', 1.5):
+    if mean_recent > thresholds.get('effort_chronique_threshold', 75.0):
         return "chronique"
     
     return "stable"
@@ -316,6 +353,42 @@ def compute_fluidity(variance_d2S: float, reference_variance: float = 175.0) -> 
     return 1 / (1 + np.exp(k * (x - 1)))
 
 
+def compute_fluidity_spectral(S_window, dt: float, cutoff_rel: float = 0.25) -> float:
+    """
+    Fluidité SPECTRALE, sans dimension (lot v3, 14/07/2026).
+
+    Part de la puissance spectrale située sous cutoff_rel x Nyquist :
+    les signaux lisses concentrent leur énergie dans le grave. Invariante
+    à l'échelle d'amplitude et au dt (la coupure est RELATIVE à Nyquist).
+    Remplace compute_fluidity (variance_d2S / 175), dont l'audit dt a montré
+    l'explosion x15.9 à dt=0.05. Partage la logique spectrale d'entropy_S.
+
+    Barèmes associés (compute_scores) informés de la frontière de Pareto
+    entropie-fluidité : le coin « riche dans le grave » (~0.83) -> 5,
+    le spectre uniforme (entropie max, ~0.23) -> 3.
+
+    Args:
+        S_window: fenêtre du signal (>= 10 points recommandé)
+        dt: pas d'échantillonnage
+        cutoff_rel: coupure en fraction de Nyquist (défaut 1/4)
+
+    Returns:
+        float dans [0, 1] ; 1.0 si le signal est plat (aucune énergie = aucune
+        saccade) ; 0.15 (neutre provisoire, score 3) si fenêtre trop courte.
+    """
+    S_window = np.asarray(S_window, dtype=float)
+    if len(S_window) < 10:
+        return 0.15
+    w = S_window - np.mean(S_window)
+    P = np.abs(np.fft.rfft(w)) ** 2
+    total = P.sum()
+    if total < 1e-15:
+        return 1.0
+    freqs = np.fft.rfftfreq(len(w), dt)
+    nyq = 0.5 / dt
+    return float(P[freqs <= cutoff_rel * nyq].sum() / total)
+
+
 def compute_entropy_S(S_t: Union[float, List[float], np.ndarray], 
                       sampling_rate: float) -> float:
     """
@@ -331,31 +404,23 @@ def compute_entropy_S(S_t: Union[float, List[float], np.ndarray],
     Returns:
         float: entropie spectrale entre 0 et 1
     """
-    # Buffer persistant pour accumuler les valeurs scalaires
-    if not hasattr(compute_entropy_S, '_buffer'):
-        compute_entropy_S._buffer = []
-    
-    # Si on n'a qu'une valeur scalaire, l'ajouter au buffer
+    # PAS de buffer persistant : un état caché attaché à la fonction survivrait
+    # d'un appel et d'un run à l'autre dans le même process (fuite de
+    # reproductibilité, et doublon de S_history). La fenêtre doit être passée
+    # explicitement par l'appelant (cf. simulate.py qui fournit S_window).
+    #
+    # Une valeur scalaire isolée ne porte pas de spectre : on renvoie une
+    # approximation locale fondée sur la magnitude, sans aucun état.
     if np.isscalar(S_t):
-        compute_entropy_S._buffer.append(float(S_t))
-        # Garder seulement les 5 dernières valeurs
-        if len(compute_entropy_S._buffer) > 5:
-            compute_entropy_S._buffer.pop(0)
-        
-        # Si on a au moins 3 valeurs dans le buffer, les utiliser
-        if len(compute_entropy_S._buffer) >= 3:
-            S_t = compute_entropy_S._buffer
+        magnitude = abs(S_t)
+        if magnitude < 0.1:
+            return 0.1  # Très peu d'information
+        elif magnitude > 10:
+            return 0.9  # Beaucoup d'information
         else:
-            # Sinon, approximation basée sur la magnitude
-            magnitude = abs(S_t)
-            if magnitude < 0.1:
-                return 0.1  # Très peu d'information
-            elif magnitude > 10:
-                return 0.9  # Beaucoup d'information
-            else:
-                # Fonction sigmoïde pour mapper [0.1, 10] -> [0.1, 0.9]
-                return 0.1 + 0.8 / (1 + np.exp(-0.5 * (magnitude - 5)))
-    
+            # Fonction sigmoïde pour mapper [0.1, 10] -> [0.1, 0.9]
+            return 0.1 + 0.8 / (1 + np.exp(-0.5 * (magnitude - 5)))
+
     # Si on a moins de 10 points, calculer une entropie approximative
     if len(S_t) < 10:
         # Entropie basée sur la variance du signal court
@@ -388,7 +453,11 @@ def compute_entropy_S(S_t: Union[float, List[float], np.ndarray],
         else:
             entropy_normalized = 0.5
         
-        return np.clip(entropy_normalized, 0.0, 1.0)
+        # Plancher harmonisé (14/07/2026) : le chemin spectral respecte le même
+        # 0.1 que les chemins dégénérés (avant : un sinus pur scorait 0.0 SOUS
+        # une constante à 0.1). Prouvé sans effet sur les runs existants
+        # (l'entropie vivante ne descend jamais sous 0.1).
+        return np.clip(entropy_normalized, 0.1, 1.0)
         
     except Exception as e:
         warnings.warn(f"Erreur dans compute_entropy_S: {e}")
@@ -501,29 +570,39 @@ def compute_t_retour(S_history: List[float], t_choc: int, dt: float,
     return (len(S_history) - t_choc) * dt
 
 
-def compute_continuous_resilience(C_history: List[float], S_history: List[float], 
-                                 perturbation_active: bool = True) -> float:
+def compute_continuous_resilience(C_history: List[float], S_history: List[float],
+                                 perturbation_active: bool = True) -> Optional[float]:
     """
     Calcule la résilience sous perturbation continue.
-    
+
     Pour une perturbation continue (ex: sinusoïdale), mesure la capacité
     du système à maintenir sa cohérence et stabilité.
-    
+
     Args:
         C_history: historique de la cohérence C(t)
         S_history: historique du signal S(t)
         perturbation_active: si une perturbation est active
-    
+
     Returns:
         float: score de résilience continue [0, 1]
         - 1.0 = excellente résilience (maintien de cohérence)
         - 0.0 = mauvaise résilience (perte de cohérence)
-    
+        None = verdict suspendu (sous perturbation mais pas encore assez vécu)
+
     Note:
-        Métrique complémentaire à t_retour pour perturbations non-ponctuelles
+        Métrique complémentaire à t_retour pour perturbations non-ponctuelles.
+        Sans perturbation, cette métrique ne s'applique pas (None) : la tenue
+        de soi au repos est mesurée par μ_Rloc en boucle (lot v2), jamais
+        décrétée. Sous perturbation mais avec moins de 20 points, on ne sait
+        PAS encore juger → verdict suspendu (None, humilité de démarrage).
     """
-    if not perturbation_active or len(C_history) < 20:
-        return 1.0  # Pas de perturbation ou pas assez de données
+    if not perturbation_active:
+        # Pas de perturbation : la tenue de soi est MESURÉE ailleurs (μ_Rloc
+        # en boucle, lot v2), jamais décrétée. Verdict non applicable ici.
+        return None
+    if len(C_history) < 20:
+        # Sous perturbation mais pas assez vécu pour juger : verdict suspendu.
+        return None
     
     # Utiliser une fenêtre récente
     window_size = min(100, len(C_history))
@@ -573,10 +652,19 @@ def compute_continuous_resilience(C_history: List[float], S_history: List[float]
     return float(np.clip(continuous_resilience, 0.0, 1.0))
 
 
-def compute_adaptive_resilience(config: Dict, metrics: Dict, 
-                               C_history: List[float] = None, 
+# ── PANNEAU (lisibilité, 15/07/2026) ────────────────────────────────────────
+# Tu cherches le calcul de résilience par ENVELOPPES (μ_Rloc / effort / erreur,
+# médiane ± k·IQR, gel pendant épisodes, recalibration prudente) ? Il vit dans
+# init_resilience_envelope_state (l.~1592) et update_resilience_envelope
+# (l.~1653). La fonction ci-dessous est L'AUTRE BRANCHE de l'aiguillage
+# (simulate l.~868) : resilience_v2.mode='auto' sert les enveloppes AU REPOS
+# et bascule ici PENDANT les perturbations déclarées (machinerie t_retour /
+# récupération d'épisode). Deux juges, chacun son régime — pas un doublon.
+# ─────────────────────────────────────────────────────────────────────────────
+def compute_adaptive_resilience(config: Dict, metrics: Dict,
+                               C_history: List[float] = None,
                                S_history: List[float] = None,
-                               t_choc: int = None, dt: float = 0.05) -> Dict[str, Any]:
+                               t_choc: int = None, dt: float = None) -> Dict[str, Any]:
     """
     Calcule la résilience adaptative selon le type de perturbation.
     
@@ -598,6 +686,12 @@ def compute_adaptive_resilience(config: Dict, metrics: Dict,
         - 'score': score normalisé [1-5]
         - 'metric_used': 't_retour' ou 'continuous_resilience'
     """
+    # dt : utiliser l'horloge réelle de la config, jamais un défaut fantôme.
+    # (L'ancien défaut 0.05 ≠ dt=0.1 de la config faussait t_retour si un
+    # appelant oubliait de passer dt.)
+    if dt is None:
+        dt = config.get('system', {}).get('dt', 0.1) if config else 0.1
+
     # Déterminer le type de perturbation
     has_continuous_perturbation = False
     perturbation_type = 'none'
@@ -989,6 +1083,45 @@ def compute_adaptive_window(total_steps: int, target_percentage: float,
     return window
 
 
+
+# ============================================================================
+# SOURCE UNIQUE DES BARÈMES DE SCORES (unification 14/07/2026, ré-appliquée
+# le 15/07 : le checkpoint d'Andréa prédatait sa livraison — atelier mixte
+# révélé par le switch de perception qui consomme cette table)
+# Consommée par metrics.compute_scores, visualize.calculate_empirical_scores_
+# notebook ET le switch de perception. Toute calibration se fait ICI, une fois.
+# ============================================================================
+SCORE_BRACKETS = {
+    'stability':  {'direction': 'lower',  'thresholds': [0.5, 1.0, 2.0, 3.0]},
+    'regulation': {'direction': 'lower',  'thresholds': [0.1, 0.3, 0.5, 1.0]},
+    # fluidity : borne du 3 recalibrée EN CAMPAGNE (16/07, 4 seeds : régime
+    # naturel 0.072 ± 0.021, l'ancienne borne 0.08 coupait la distribution en
+    # deux -> papillonnement 2/3 selon la graine). Ancres de Pareto (4 et 5)
+    # inchangées. Le 2 marque désormais une dégradation réelle (< 0.035).
+    'fluidity':   {'direction': 'higher', 'thresholds': [0.55, 0.30, 0.035, 0.015], 'ge': False},
+    'resilience': {'direction': 'higher', 'thresholds': [0.90, 0.75, 0.60, 0.40], 'ge': True},
+    'innovation': {'direction': 'higher', 'thresholds': [0.8, 0.6, 0.4, 0.2], 'ge': False},
+    'cpu_cost':   {'direction': 'lower',  'thresholds': [0.001, 0.01, 0.1, 1.0]},
+    # effort : PROVISOIRE (15/07, dossier 4 seeds — médiane repos 59, p75 73,
+    # p90 229, corrélation effort<->erreur +0.54, choc invisible). Le score 1
+    # permanent des anciens seuils était connu faux ; ceux-ci notent la
+    # croisière 3 EN ATTENDANT la certification sur-effort des campagnes
+    # (question OUVERTE : l'effort est un compteur d'activité, pas de stress).
+    'effort':     {'direction': 'lower',  'thresholds': [30.0, 45.0, 75.0, 150.0]},
+}
+
+
+def score_from_brackets(value: float, key: str) -> int:
+    """Score 1-5 depuis la table unique SCORE_BRACKETS."""
+    b = SCORE_BRACKETS[key]
+    t = b['thresholds']
+    if b['direction'] == 'lower':
+        return 5 if value < t[0] else 4 if value < t[1] else 3 if value < t[2] else 2 if value < t[3] else 1
+    if b.get('ge', False):
+        return 5 if value >= t[0] else 4 if value >= t[1] else 3 if value >= t[2] else 2 if value >= t[3] else 1
+    return 5 if value > t[0] else 4 if value > t[1] else 3 if value > t[2] else 2 if value > t[3] else 1
+
+
 def compute_scores(history_slice: List[Dict]) -> Dict[str, float]:
     """
     Calcule les scores pour une tranche d'historique donnée.
@@ -1017,79 +1150,59 @@ def compute_scores(history_slice: List[Dict]) -> Dict[str, float]:
     recent_cpu = [h.get('cpu_step(t)', 0) for h in history_slice]
     recent_entropy = [h.get('entropy_S', 0.5) for h in history_slice]
     recent_fluidity = [h.get('fluidity', 1.0) for h in history_slice]
-    recent_C = [h.get('C(t)', 1.0) for h in history_slice]
     recent_adaptive_resilience = [h.get('adaptive_resilience', None) for h in history_slice]
-    recent_continuous_resilience = [h.get('continuous_resilience', None) for h in history_slice]
-    
+
     scores = {}
     
     # Stabilité : basée sur std(S) et variations de C(t)
     std_S = np.std(recent_S) if recent_S else 1.0
-    stability_score = 5 if std_S < 0.5 else 4 if std_S < 1.0 else 3 if std_S < 2.0 else 2 if std_S < 3.0 else 1
+    stability_score = score_from_brackets(std_S, 'stability')
     scores['stability'] = float(stability_score)
     
     # Régulation : basée sur l'erreur moyenne
     mean_error = np.mean(recent_errors) if recent_errors else 1.0
-    regulation_score = 5 if mean_error < 0.1 else 4 if mean_error < 0.3 else 3 if mean_error < 0.5 else 2 if mean_error < 1.0 else 1
+    regulation_score = score_from_brackets(mean_error, 'regulation')
     scores['regulation'] = float(regulation_score)
     
     # Fluidité : directement depuis la métrique
-    mean_fluidity = np.mean(recent_fluidity) if recent_fluidity else 0.5
-    fluidity_score = 5 if mean_fluidity > 0.9 else 4 if mean_fluidity > 0.7 else 3 if mean_fluidity > 0.5 else 2 if mean_fluidity > 0.3 else 1
+    mean_fluidity = np.mean(recent_fluidity) if recent_fluidity else 0.15
+    # Barèmes v3 pour la fluidité SPECTRALE, informés de la frontière de Pareto
+    # entropie-fluidité : coin « riche dans le grave » (~0.83) -> 5 ; spectre
+    # uniforme à entropie max (~0.23) -> 3 ; régime courant mesuré (~0.10-0.12)
+    # -> 3. Provisoires, à calibrer multi-campagnes.
+    fluidity_score = score_from_brackets(mean_fluidity, 'fluidity')
     scores['fluidity'] = float(fluidity_score)
     
-    # Résilience : utiliser adaptive_resilience en priorité
-    resilience_score = 3  # Par défaut
-    
-    # D'abord essayer adaptive_resilience
+    # Résilience : UN SEUL miroir honnête — le verdict d'adaptive_resilience,
+    # qui encode déjà le switch ponctuel/continu (t_retour vs continuous).
+    # Plus de cascade par disponibilité (qui ferait scorer deux runs par des
+    # chemins différents), plus de proxy C(t) (qui confondrait cohésion de
+    # chaîne et résilience). Sans verdict (p. ex. sous perturbation mais pas
+    # assez vécu) → neutre 3, jamais une note inventée.
     valid_adaptive_resilience = [r for r in recent_adaptive_resilience if r is not None]
     if valid_adaptive_resilience:
         mean_adaptive_resilience = np.mean(valid_adaptive_resilience)
-        if mean_adaptive_resilience >= 0.90:
-            resilience_score = 5
-        elif mean_adaptive_resilience >= 0.75:
-            resilience_score = 4
-        elif mean_adaptive_resilience >= 0.60:
-            resilience_score = 3
-        elif mean_adaptive_resilience >= 0.40:
-            resilience_score = 2
-        else:
-            resilience_score = 1
-    # Sinon essayer continuous_resilience
-    elif recent_continuous_resilience:
-        valid_continuous_resilience = [r for r in recent_continuous_resilience if r is not None]
-        if valid_continuous_resilience:
-            mean_continuous_resilience = np.mean(valid_continuous_resilience)
-            if mean_continuous_resilience >= 0.90:
-                resilience_score = 5
-            elif mean_continuous_resilience >= 0.75:
-                resilience_score = 4
-            elif mean_continuous_resilience >= 0.60:
-                resilience_score = 3
-            elif mean_continuous_resilience >= 0.40:
-                resilience_score = 2
-            else:
-                resilience_score = 1
-    # En dernier recours, utiliser C(t) comme proxy
+        resilience_score = score_from_brackets(mean_adaptive_resilience, 'resilience')
     else:
-        C_recovery = np.mean(recent_C[-5:]) if len(recent_C) >= 5 else 0.5
-        resilience_score = 5 if C_recovery > 0.9 else 4 if C_recovery > 0.7 else 3 if C_recovery > 0.5 else 2 if C_recovery > 0.3 else 1
-    
+        resilience_score = 3  # Aucun verdict disponible : neutre.
+
     scores['resilience'] = float(resilience_score)
     
     # Innovation : basée sur l'entropie
     mean_entropy = np.mean(recent_entropy) if recent_entropy else 0.5
-    innovation_score = 5 if mean_entropy > 0.8 else 4 if mean_entropy > 0.6 else 3 if mean_entropy > 0.4 else 2 if mean_entropy > 0.2 else 1
+    innovation_score = score_from_brackets(mean_entropy, 'innovation')
     scores['innovation'] = float(innovation_score)
     
     # Coût CPU
     mean_cpu = np.mean(recent_cpu) if recent_cpu else 0.01
-    cpu_score = 5 if mean_cpu < 0.001 else 4 if mean_cpu < 0.01 else 3 if mean_cpu < 0.1 else 2 if mean_cpu < 1.0 else 1
+    cpu_score = score_from_brackets(mean_cpu, 'cpu_cost')
     scores['cpu_cost'] = float(cpu_score)
     
     # Effort interne
     mean_effort = np.mean(recent_efforts) if recent_efforts else 1.0
-    effort_score = 5 if mean_effort < 0.5 else 4 if mean_effort < 1.0 else 3 if mean_effort < 2.0 else 2 if mean_effort < 3.0 else 1
+    # Barèmes v3 : l'effort est désormais un TAUX (par unité de temps) ;
+    # anciens seuils x10 (équivalence stricte à dt=0.1).
+    effort_score = score_from_brackets(mean_effort, 'effort')
     scores['effort'] = float(effort_score)
     
     return scores
@@ -1479,3 +1592,216 @@ def compute_multiple_tau(signals_dict: Dict[str, List[float]], dt: float) -> Dic
             result[f'tau_{signal_name}'] = dt  # Pas assez de données
     
     return result
+
+# ============================================================================
+# RÉSILIENCE SIGNAL-DRIVEN PAR ENVELOPPES DE SANTÉ (étage 2, spec 13/07/2026)
+# État EXPLICITE passé en argument (jamais d'attribut de fonction caché).
+# Entièrement déterministe : aucun RNG, aucun temps mur.
+# ============================================================================
+
+from collections import deque as _deque
+
+
+def init_resilience_envelope_state(config: Dict) -> Dict:
+    """Initialise l'état de la résilience par enveloppes (bloc resilience_v2)."""
+    cfg = (config or {}).get('resilience_v2', {})
+    # Fenêtres en UNITÉS DE TEMPS (hygiène sans-dimension, 14/07/2026) :
+    # les clés *_t priment et sont converties en pas via dt ; les anciennes
+    # clés en pas restent acceptées (rétro-compatibilité). Les défauts en
+    # temps reconvertissent EXACTEMENT aux anciens pas à dt=0.1 (neutre).
+    _dt = (config or {}).get('system', {}).get('dt', 0.1)
+    def _steps(key_t, default_t, key_steps, default_steps):
+        if key_t in cfg:
+            return max(1, int(round(cfg[key_t] / _dt)))
+        if key_steps in cfg:
+            return int(cfg[key_steps])
+        return max(1, int(round(default_t / _dt)))
+    W_env = _steps('W_env_t', 10.0, 'W_env', 100)
+    signals = ['mu_Rloc', 'effort', 'mean_abs_error']
+    directions = {'mu_Rloc': ['low'], 'effort': ['high'], 'mean_abs_error': ['high']}
+    if cfg.get('rigidity_watch', False):
+        directions['mu_Rloc'] = ['low', 'high']
+    return {
+        'cfg': {
+            'W_env': W_env,
+            'k_iqr': float(cfg.get('k_iqr', 1.5)),
+            'iqr_floor_rel': float(cfg.get('iqr_floor_rel', 0.05)),
+            'iqr_floor_abs': float(cfg.get('iqr_floor_abs', 1e-6)),
+            'warmup': _steps('warmup_t', 2.0, 'warmup', 20),
+            'debounce': _steps('debounce_t', 0.3, 'debounce', 3),
+            'T_recal': _steps('T_recal_t', 20.0, 'T_recal', 200),
+            'W_mem': _steps('W_mem_t', 50.0, 'W_mem', 500),
+            'tau_ref': float(cfg.get('tau_ref', 10.0)),
+            'w_depth': float(cfg.get('w_depth', 0.5)),
+            'w_time': float(cfg.get('w_time', 0.5)),
+            'aggregation': str(cfg.get('aggregation', 'rms')),  # mean|max|rms (rms : campagne 13/07)
+            'depth_memory': str(cfg.get('depth_memory', 'worst')),  # worst|mean (worst : campagne 13/07,
+            # « aussi résilient que sa pire récupération récente » — la moyenne diluait les catastrophes)
+            'depth_compression': str(cfg.get('depth_compression', 'log')),  # log|linear (log : discrimine
+            # mieux les sévérités, la sigmoïde d'entrée saturant déjà les intensités extrêmes)
+            'recal_stability_factor': float(cfg.get('recal_stability_factor', 1.5)),
+            'spike_threshold': float(cfg.get('spike_threshold', 1.0)),  # D >= 1 largeur d'enveloppe
+            # → épisode immédiat (l'anti-rebond filtre le scintillement de bord, pas la violence)
+        },
+        'signals': signals,
+        'directions': directions,
+        'healthy': {s: _deque(maxlen=W_env) for s in signals},   # échantillons sains
+        'raw': {s: _deque(maxlen=W_env) for s in signals},       # bruts (pour recalibration)
+        'pre_iqr': {s: None for s in signals},                   # IQR sain avant épisode
+        'episode': None,          # épisode courant : dict ou None
+        'out_streak': 0,          # pas consécutifs D>0 (anti-rebond début)
+        'pending_Dmax': 0.0,      # pic accumulé PENDANT l'anti-rebond (jamais perdu)
+        'pending_peaks': None,    # pics par signal pendant l'anti-rebond
+        'in_streak': 0,           # pas consécutifs D=0 (anti-rebond fin)
+        'episodes': [],           # épisodes clos : (t_end, D_max, t_ret, recalibrated)
+        'step': 0,
+    }
+
+
+def _robust_iqr(values, med, cfg):
+    q75, q25 = np.percentile(values, [75, 25])
+    return max(q75 - q25, cfg['iqr_floor_rel'] * abs(med), cfg['iqr_floor_abs'])
+
+
+def update_resilience_envelope(env: Dict, signals_t: Dict[str, float],
+                               t: float, dt: float) -> Dict:
+    """
+    Un pas de la résilience par enveloppes.
+
+    Args:
+        env: état (init_resilience_envelope_state), muté in-place
+        signals_t: {'mu_Rloc': ..., 'effort': ..., 'mean_abs_error': ...}
+        t: temps courant ; dt: pas de temps
+
+    Returns dict:
+        D, D_mean, D_max, D_rms : profondeurs d'excursion (les 3 agrégations loggées)
+        value : résilience [0,1] ou None (warmup)
+        metric_used : 'episodes' | 'tenue_de_soi' | None
+        in_episode : bool ; recalibrated : bool (ce pas)
+    """
+    cfg = env['cfg']
+    env['step'] += 1
+    for s in env['signals']:
+        env['raw'][s].append(float(signals_t[s]))
+
+    # --- Enveloppes et profondeurs par signal ---
+    depths = {}
+    envelopes = {}
+    ready = all(len(env['healthy'][s]) >= cfg['warmup'] for s in env['signals'])
+    if ready:
+        for s in env['signals']:
+            vals = np.asarray(env['healthy'][s], dtype=float)
+            med = float(np.median(vals))
+            iqr = _robust_iqr(vals, med, cfg)
+            half = cfg['k_iqr'] * iqr
+            lo, hi = med - half, med + half
+            envelopes[s] = (lo, hi, half)
+            x = float(signals_t[s]); d = 0.0
+            if 'low' in env['directions'][s] and x < lo:
+                d = max(d, (lo - x) / half)
+            if 'high' in env['directions'][s] and x > hi:
+                d = max(d, (x - hi) / half)
+            depths[s] = d
+        dv = np.array([depths[s] for s in env['signals']], dtype=float)
+        D_mean = float(np.mean(dv)); D_max = float(np.max(dv))
+        D_rms = float(np.sqrt(np.mean(dv ** 2)))
+        D = {'mean': D_mean, 'max': D_max, 'rms': D_rms}[cfg['aggregation']]
+    else:
+        depths = {s: 0.0 for s in env['signals']}
+        D_mean = D_max = D_rms = D = 0.0
+
+    recalibrated_now = False
+    ep = env['episode']
+
+    if ep is None:
+        # Hors épisode : les pas sains nourrissent les buffers
+        if D <= 0.0:
+            for s in env['signals']:
+                env['healthy'][s].append(float(signals_t[s]))
+            env['out_streak'] = 0
+            env['pending_Dmax'] = 0.0
+            env['pending_peaks'] = None
+        elif ready:
+            env['out_streak'] += 1
+            env['pending_Dmax'] = max(env['pending_Dmax'], D)
+            if env['pending_peaks'] is None:
+                env['pending_peaks'] = dict(depths)
+            else:
+                for s in env['signals']:
+                    env['pending_peaks'][s] = max(env['pending_peaks'][s], depths[s])
+            if env['out_streak'] >= cfg['debounce'] or D >= cfg['spike_threshold']:
+                # Début d'épisode : gel, snapshot des IQR sains.
+                # D_max initialisé au PIC accumulé (le sommet d'un choc bref
+                # tombé pendant l'anti-rebond n'est jamais perdu).
+                for s in env['signals']:
+                    vals = np.asarray(env['healthy'][s], dtype=float)
+                    env['pre_iqr'][s] = _robust_iqr(vals, float(np.median(vals)), cfg)
+                env['episode'] = {'t_start': t - env['out_streak'] * dt,
+                                  'D_max': env['pending_Dmax'],
+                                  'peak_by_signal': dict(env['pending_peaks']),
+                                  'steps': env['out_streak']}
+                env['out_streak'] = 0
+                env['pending_Dmax'] = 0.0
+                env['pending_peaks'] = None
+    else:
+        ep['steps'] += 1
+        ep['D_max'] = max(ep['D_max'], D)
+        for s in env['signals']:
+            ep['peak_by_signal'][s] = max(ep['peak_by_signal'][s], depths[s])
+        if D <= 0.0:
+            env['in_streak'] += 1
+            if env['in_streak'] >= cfg['debounce']:
+                # Fin d'épisode : retour dans l'enveloppe
+                t_ret = (t - cfg['debounce'] * dt) - ep['t_start']
+                env['episodes'].append({'t_end': t, 'D_max': ep['D_max'],
+                                        't_ret': max(t_ret, dt), 'recalibrated': False})
+                env['episode'] = None
+                env['in_streak'] = 0
+        else:
+            env['in_streak'] = 0
+            # Recalibration (régime légitime) : temps ET santé ET stabilité
+            # (condition d'Andréa : on ne normalise jamais une lutte).
+            if ep['steps'] >= cfg['T_recal']:
+                excursing = [s for s in env['signals'] if depths[s] > 0.0]
+                others_ok = all(depths[s] <= 0.0 for s in env['signals'] if s not in excursing)
+                settled = True
+                for s in excursing:
+                    recent = np.asarray(list(env['raw'][s])[-max(cfg['W_env'] // 2, cfg['warmup']):], dtype=float)
+                    rec_iqr = _robust_iqr(recent, float(np.median(recent)), cfg)
+                    if env['pre_iqr'][s] and rec_iqr > cfg['recal_stability_factor'] * env['pre_iqr'][s]:
+                        settled = False
+                        break
+                if others_ok and settled:
+                    for s in env['signals']:
+                        env['healthy'][s] = _deque(env['raw'][s], maxlen=cfg['W_env'])
+                    t_ret = min(ep['steps'] * dt, cfg['T_recal'] * dt)
+                    env['episodes'].append({'t_end': t, 'D_max': ep['D_max'],
+                                            't_ret': t_ret, 'recalibrated': True})
+                    env['episode'] = None
+                    recalibrated_now = True
+
+    # Borne mémoire des épisodes (par temps)
+    env['episodes'] = [e for e in env['episodes'] if (t - e['t_end']) <= cfg['W_mem'] * dt]
+
+    # --- Valeur de résilience ---
+    if not ready:
+        value, metric_used = None, None
+    elif env['episodes']:
+        _g = (lambda x: np.log1p(x)) if cfg['depth_compression'] == 'log' else (lambda x: x)
+        if cfg['depth_memory'] == 'worst':
+            r_depth = float(1.0 / (1.0 + _g(max(e['D_max'] for e in env['episodes']))))
+        else:
+            r_depth = float(np.mean([1.0 / (1.0 + _g(e['D_max'])) for e in env['episodes']]))
+        r_time = float(np.mean([1.0 / (1.0 + e['t_ret'] / cfg['tau_ref']) for e in env['episodes']]))
+        value = cfg['w_depth'] * r_depth + cfg['w_time'] * r_time
+        metric_used = 'episodes'
+    else:
+        # Aucun épisode en mémoire : résilience non testée → tenue de soi (étage 1)
+        mu_hist = list(env['raw']['mu_Rloc'])
+        value = float(np.mean(mu_hist[-min(100, len(mu_hist)):]))
+        metric_used = 'tenue_de_soi'
+
+    return {'D': D, 'D_mean': D_mean, 'D_max': D_max, 'D_rms': D_rms,
+            'value': value, 'metric_used': metric_used,
+            'in_episode': env['episode'] is not None,
+            'recalibrated': recalibrated_now}

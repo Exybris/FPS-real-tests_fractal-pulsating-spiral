@@ -71,7 +71,9 @@ class TestDynamics(unittest.TestCase):
     def test_compute_An(self):
         """Test du calcul d'amplitude adaptative."""
         In_t = np.array([0.5, 0.5, 0.5])
-        An_t = dynamics.compute_An(0, self.state, In_t, self.config)
+        # compute_An prend désormais le feedback F_n_t_An (ici nul : mode
+        # statique sans feedback → An = A0·σ(In)).
+        An_t = dynamics.compute_An(0, self.state, In_t, np.zeros(3), self.config)
         
         # Vérifier la forme
         self.assertEqual(len(An_t), 3)
@@ -201,17 +203,31 @@ class TestDynamics(unittest.TestCase):
                                  msg=f"S_i(t) doit être Σ(j≠n) O_j * w_nj pour strate {n}")
             
     def test_formule_Fn_conforme(self):
-        """Test de conformité de la formule Fn(t)."""
+        """Conformité des DEUX feedbacks (catalogue §4 : jamais un seul Fₙ).
+
+        F_Aₙ(t) = βₙ·G(On−En)  → amplitude (via l'archétype G)
+        F_fₙ(t) = βₙ·γ(t)       → fréquence
+        """
         beta_n = 1.5
         On_t = 0.8
         En_t = 0.6
         gamma_t = 0.9
-        
-        Fn = dynamics.compute_Fn(0, beta_n, On_t, En_t, gamma_t, 1.0, 1.0, {})
-        expected = beta_n * (On_t - En_t) * gamma_t
-        
-        self.assertAlmostEqual(Fn, expected, places=6,
-                             msg="Fn(t) doit être βn·(On(t)-En(t))·γ(t)")
+        error = En_t - On_t  # convention production/catalogue : errorₙ = Eₙ − Oₙ
+
+        # Canal AMPLITUDE : βₙ · G(erreur), ici archétype tanh (λ=1).
+        G_value = regulation.compute_G(error, 'tanh', {'lambda': 1.0})
+        F_A = beta_n * G_value
+        self.assertAlmostEqual(F_A, beta_n * np.tanh(error), places=6,
+                               msg="F_Aₙ(t) doit être βₙ·G(Eₙ−Oₙ)")
+
+        # Canal FRÉQUENCE : βₙ · γ(t).
+        F_f = beta_n * gamma_t
+        self.assertAlmostEqual(F_f, beta_n * gamma_t, places=6,
+                               msg="F_fₙ(t) doit être βₙ·γ(t)")
+
+        # Le design a quitté l'ancienne formule unique βₙ·(Eₙ−Oₙ)·γ.
+        self.assertNotAlmostEqual(F_A, beta_n * error * gamma_t, places=3,
+                                  msg="Le feedback amplitude n'est plus βₙ·(Eₙ−Oₙ)·γ")
 
 
 class TestRegulation(unittest.TestCase):
@@ -272,35 +288,24 @@ class TestRegulation(unittest.TestCase):
         fn_t = np.array([1.0, 1.1, 0.9])
 
     def test_feedback_modes(self):
-        """Test des différents modes de feedback."""
+        """Le feedback amplitude suit l'archétype G choisi ; le feedback
+        fréquence reste βₙ·γ, indépendant de l'archétype (catalogue §4)."""
         beta_n = 1.5
         On_t = 0.8
         En_t = 0.6
         gamma_t = 0.9
-    
-        # Mode simple
-        config_simple = {'regulation': {'feedback_mode': 'simple'}}
-        Fn_simple = dynamics.compute_Fn(0, beta_n, On_t, En_t, gamma_t, 1.0, 1.0, config_simple)
-        expected_simple = beta_n * (On_t - En_t) * gamma_t
-        self.assertAlmostEqual(Fn_simple, expected_simple, places=6)
-    
-        # Mode archetype
-        config_arch = {
-        'regulation': {'feedback_mode': 'archetype', 'G_arch': 'tanh', 'lambda': 1.0}
-        }
-        Fn_arch = dynamics.compute_Fn(0, beta_n, On_t, En_t, gamma_t, 1.0, 1.0, config_arch)
-        # Vérifier que c'est différent du mode simple
-        self.assertNotAlmostEqual(Fn_arch, Fn_simple, places=3)
-    
-        # Mode gn_full
-        config_gn = {
-            'regulation': {'feedback_mode': 'gn_full'},
-            'enveloppe': {'env_type': 'gaussienne', 'env_mode': 'static'},
-            'system': {'T': 100}
-        }
-        Fn_gn = dynamics.compute_Fn(0, beta_n, On_t, En_t, gamma_t, 1.0, 1.0, config_gn)
-        # Vérifier que c'est calculé
-        self.assertIsInstance(Fn_gn, float)    
+        error = En_t - On_t  # convention production/catalogue : errorₙ = Eₙ − Oₙ
+
+        # AMPLITUDE : dépend de l'archétype G.
+        F_A_tanh = beta_n * regulation.compute_G(error, 'tanh', {'lambda': 1.0})
+        F_A_resonance = beta_n * regulation.compute_G(error, 'resonance', {'lambda': 1.0})
+        self.assertNotAlmostEqual(F_A_tanh, F_A_resonance, places=3,
+                                  msg="L'archétype G doit changer le feedback amplitude")
+        self.assertIsInstance(float(F_A_tanh), float)
+
+        # FRÉQUENCE : βₙ·γ, le même quel que soit l'archétype amplitude.
+        F_f = beta_n * gamma_t
+        self.assertAlmostEqual(F_f, beta_n * gamma_t, places=6)
 
 
 class TestMetrics(unittest.TestCase):
@@ -782,7 +787,7 @@ class TestPerformance(unittest.TestCase):
         
         # Tester quelques calculs
         In_t = np.ones(50)
-        An_t = dynamics.compute_An(0, state, In_t, config)
+        An_t = dynamics.compute_An(0, state, In_t, np.zeros(50), config)
         self.assertEqual(len(An_t), 50)
     
     def test_numerical_stability(self):

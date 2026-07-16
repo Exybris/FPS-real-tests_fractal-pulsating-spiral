@@ -88,8 +88,11 @@ def compute_In(t: float, perturbation_config: Dict[str, Any], N: Optional[int] =
             value = 0.0
     
     elif mode == "uniform":
-        # Bruit uniforme U[0,1] * amplitude
-        value = amplitude * np.random.uniform(0, 1)
+        # Bruit uniforme U[0,1] * amplitude — RNG PRIVÉ déterministe par t
+        # (fix 14/07/2026 : l'ancien tirage sur le flux global dépendait de
+        # l'ordre d'appel, donc irreproductible par construction).
+        _seed = int(perturbation_config.get('seed', 0) + t * 1000) % 2**32
+        value = amplitude * np.random.RandomState(_seed).uniform(0, 1)
     
     else:  # "none" ou mode inconnu
         value = 0.0
@@ -156,7 +159,10 @@ def compute_An(t: float, state: List[Dict], In_t: np.ndarray, F_n_t_An: np.ndarr
     if env_mode == "dynamic":
         # Calculer En et On pour l'enveloppe
         history = config.get('history', [])
-        En_t = compute_En(t, state, history, config)
+        # RÉORDONNANCEMENT (15/07/2026) : consommer le Eₙ OFFICIEL du pas
+        # (calculé en tête avec φ_reg et le buffer d'effort) s'il est fourni ;
+        # sinon, repli sur l'ancien calcul interne (rétro-compatibilité).
+        En_t = config.get('En_ext') if config.get('En_ext') is not None else compute_En(t, state, history, config)
         
         # Pour On, on a besoin des valeurs actuelles (problème de circularité)
         # Solution : utiliser les valeurs de l'itération précédente
@@ -183,6 +189,10 @@ def compute_An(t: float, state: List[Dict], In_t: np.ndarray, F_n_t_An: np.ndarr
                     enveloppe_config.get('sigma_n_static', 0.1),
                     enveloppe_config.get('sigma_n_dynamic')
                 )
+                # σₙ RELATIF (15/07/2026) : si simulate a calculé la tolérance
+                # relative du pas (k·IQR des erreurs propres), elle prime.
+                if config.get('sigma_n_override') is not None:
+                    sigma_n_t = config['sigma_n_override']
                 mu_n_t = regulation.compute_mu_n(
                     t, env_mode,
                     enveloppe_config.get('mu_n', 0.0),
@@ -212,17 +222,7 @@ def compute_An(t: float, state: List[Dict], In_t: np.ndarray, F_n_t_An: np.ndarr
         else:
             # Mode statique classique
             An_t[n] = base_amplitude
-        # DIAG compute_An
-        if 0.05 < t < 0.15:
-            print(f"DIAG An t={t:.2f}: An_t={An_t}")
-            print(f"DIAG An t={t:.2f}: env_mode={env_mode}")
-            if env_mode == 'dynamic':
-                print(f"DIAG An t={t:.2f}: En_inside={En_t}")
-                print(f"DIAG An t={t:.2f}: On_prev={On_t_prev}")
-                for n in range(min(3, len(An_t))):
-                    base = state[n]['A0'] * (1.0 / (1.0 + np.exp(-state[n]['k'] * (In_t[n] - state[n]['x0']))))
-                    print(f"DIAG An t={t:.2f} n={n}: base={base:.10f} F_clamped={np.clip(F_n_t_An[n], -0.5, 0.5):.10f}")
-    
+
     return An_t
 
 
@@ -771,7 +771,8 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
             obs_G_arch = history[-1].get('G_arch_used', 'tanh')
             obs_gamma = history[-1].get('gamma', gamma)
             obs_scores = metrics.calculate_all_scores(history, config)
-            obs_perf = np.mean(list(obs_scores['current'].values()))
+            # cpu_cost hors pilotage (lot v2) : temps mur non reproductible, saturé.
+            obs_perf = np.mean([v for k, v in obs_scores['current'].items() if k != 'cpu_cost'])
             obs_key = (round(obs_gamma, 1), obs_G_arch)
 
             if obs_key not in journal['coupled_states']:
@@ -802,7 +803,9 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
     # vivait dans un présent perpétuel et la fenêtre "global" n'existait jamais.
     scores = metrics.calculate_all_scores(history, config)
     current_scores = scores['current']
-    system_performance_score = np.mean(list(current_scores.values()))
+    # cpu_cost hors pilotage (lot v2) : garde sa place dans les logs/figures,
+    # plus dans la moyenne qui pilote gamma.
+    system_performance_score = np.mean([v for k, v in current_scores.items() if k != 'cpu_cost'])
     
     # 3. ENREGISTRER L'ÉTAT COUPLÉ (γ, G)
     state_key = (round(gamma_current, 1), current_G_arch)
@@ -974,7 +977,7 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
             best_synergy = candidate_key
     
     # Vérifier si on est au plateau parfait
-    all_scores_5 = all(score >= 5 for score in current_scores.values())
+    all_scores_5 = all(score >= 5 for k, score in current_scores.items() if k != 'cpu_cost')
     
     if all_scores_5 and best_synergy_score > 4.5:
         # MODE TRANSCENDANT SYNERGIQUE !
@@ -1017,7 +1020,11 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
         
         # Explorer les combinaisons (γ, G) non testées
         all_gamma_values = set(round(g, 1) for g in np.linspace(0.1, 1.0, 10))
-        all_G_archs = {'tanh', 'resonance', 'spiral_log', 'adaptive', 'adaptive_aware'}
+        # Seulement les 4 vrais archétypes effectivement émis comme G_arch_used.
+        # 'adaptive_aware' est un alias-secours qui n'apparaît jamais comme
+        # G_arch réel : l'inclure ici rendait 'untested' jamais vide, donc la
+        # branche du mode quantique (create_quantum_gamma) restait dormante.
+        all_G_archs = {'tanh', 'resonance', 'spiral_log', 'adaptive'}
         
         tested_combinations = set(journal['coupled_states'].keys())
         untested = [(g, arch) for g in all_gamma_values for arch in all_G_archs 
@@ -1053,6 +1060,9 @@ def compute_gamma_adaptive_aware(t: float, state: List[Dict], history: List[Dict
     return np.clip(gamma, 0.1, 1.0), journal['current_regime'], journal
 
 
+# SENTINELLE PORTAGE : erreurs ABSOLUES en entrée ici aussi (médiane du pas,
+# puis erreur par strate dans evaluate). Harmonisation → relative au portage,
+# voir la sentinelle de compute_G (regulation.py) et le catalogue.
 def decide_G_adaptive_aware(t: float, gamma_current: float,
                              regulation_state: Dict, history: List[Dict], config: Dict,
                              error_summary: float):
@@ -1275,6 +1285,11 @@ def decide_G_adaptive_aware(t: float, gamma_current: float,
     reg_memory['adaptation_cycles'] += 1
     
     # Enregistrer la préférence γ → G
+    # preferred_G_by_gamma : OBSERVABILITÉ SEULE (décision du 13/07/2026).
+    # Compte les usages par régime de gamma (empreinte comportementale pour
+    # l'analyse post-run), n'informe JAMAIS les décisions : l'apprentissage
+    # pondéré par le succès vit dans coupled_states/gamma_G_synergies (côté
+    # gamma) et effectiveness_by_context (côté G, veto contextuel).
     if gamma_bucket not in reg_memory['preferred_G_by_gamma']:
         reg_memory['preferred_G_by_gamma'][gamma_bucket] = {}
     
@@ -1564,6 +1579,39 @@ def _saturante(x):
     x = np.asarray(x, dtype=float)
     return x / (1.0 + x)
 
+
+def _echelle_attention(err: np.ndarray, eps: float = 1e-9) -> np.ndarray:
+    """
+    Échelle d'attention recentrée à partir d'une erreur relative par strate.
+
+    Gabarit PERCEPTION réutilisable : c'est la mécanique commune à tous les
+    filtres FPS (S(t) aujourd'hui ; innovation, résilience, fluidité… demain).
+    Seul change ce qui entre dans `err` — l'inverse du score de la métrique
+    concernée, par strate. La fonction, elle, ne change pas.
+
+    Deux couches :
+      2. Poids BORNÉ [0.1, 1] : poids_n = 0.1 + 0.9·saturante(err_n / échelle),
+         échelle = max(médiane(err), eps) — seuil ADAPTATIF robuste ("combien
+         de fois plus loin que la norme du groupe à cet instant"). Le plafond 1
+         empêche une strate très éloignée de manger toute la lumière ; le
+         plancher 0.1 garantit que personne n'est jamais réduit au silence.
+      3. Recentrage sur 1 : echelle_n = poids_n / moyenne(poids). La moyenne
+         des poids devient exactement 1 → REDISTRIBUTION d'attention à énergie
+         conservée, ni amplification ni atténuation.
+
+    Args:
+        err: erreur relative par strate (≥ 0), shape (N,)
+        eps: plancher numérique (évite la division par une médiane ~0)
+
+    Returns:
+        np.ndarray (N,) : échelle d'attention, de moyenne 1.
+    """
+    err = np.asarray(err, dtype=float)
+    echelle = max(float(np.median(err)), eps)
+    poids = 0.1 + 0.9 * _saturante(err / echelle)
+    return poids / np.mean(poids)
+
+
 # ============== SIGNAL GLOBAL ==============
 
 def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray, 
@@ -1637,6 +1685,19 @@ def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray,
         return S_t
     
     elif mode == "extended":
+        # ================== CARTE DES PERCEPTIONS (lisibilité, 15/07) ==========
+        # Tu cherches les filtres innovation/stabilite/fluidite/effort ? Ils
+        # existent et passent TOUS par ICI — pas en branches de mode, mais en
+        # POIDS injectés dans cette unique formule (une formule, six oreilles) :
+        #   - les six déficits par strate : compute_perception_deficit (~l.1906)
+        #   - le switch qui choisit et fabrique les poids : simulate.py (~l.600-655)
+        #   - leur entrée unique dans S : perception_weights, quelques lignes plus bas
+        # Pourquoi une seule formule ? La leçon des scoreurs dupliqués : six
+        # branches divergeraient ; ici le contrat (bornes, plancher, énergie)
+        # vit en UN endroit. 'erreur' = l'extended historique (échelle d'erreur
+        # native) ; 'neutre' = poids uniformes = ΣOₙ, LE doublon de O(t), prouvé
+        # exact au bit près. La docstring de _echelle_attention raconte le plan.
+        # ========================================================================
         # S(t) = Σₙ Oₙ · echelle_n   (Oₙ = Aₙ·sin(phase_inst[n]))
         # 3 couches : err relative → poids borné [0.1,1] → recentrage sur 1.
         # γₙ et G ne vivent PLUS ici : S(t) ne porte qu'une pondération
@@ -1648,19 +1709,42 @@ def compute_S(t: float, An_array: np.ndarray, fn_array: np.ndarray,
                              {'system': {'signal_mode': 'simple'}})
 
         eps  = config.get('regulation', {}).get('epsilon_S', 1e-9)
-        On_t = compute_On(t, state, An_array, fn_array, phi_n_array, phase_inst, config)
-        En_t = compute_En(t, state, history, config)
+        # UNIFICATION On (15/07 soir) : le On OFFICIEL du pas s'il est fourni
+        # (celui de l'history), repli interne sinon — même vérité que le En.
+        On_t = config.get('On_ext') if config.get('On_ext') is not None else \
+            compute_On(t, state, An_array, fn_array, phi_n_array, phase_inst, config)
+        # RÉORDONNANCEMENT (15/07/2026) : même vérité que compute_An — le Eₙ
+        # officiel du pas s'il est fourni, repli interne sinon.
+        En_t = config.get('En_ext') if config.get('En_ext') is not None else compute_En(t, state, history, config)
 
         # 1. erreur RELATIVE (juste entre grandes et petites strates)
         amp = np.maximum(np.abs(np.asarray(An_array, float)), eps)
         err = np.abs(np.asarray(En_t, float) - np.asarray(On_t, float)) / amp
 
-        # 2. poids BORNÉ [0.1,1], seuil adaptatif (médiane robuste)
-        echelle = max(float(np.median(err)), eps)
-        poids   = 0.1 + 0.9 * _saturante(err / echelle)
-
-        # 3. recentrage sur 1 → mean(poids)=1, énergie conservée
-        echelle_n = poids / np.mean(poids)
+        # 2-3. poids borné [0.1,1] + recentrage sur 1 (gabarit réutilisable)
+        # FILTRES DE PERCEPTION (15/07/2026) : si simulate a fourni des poids
+        # de perception (filtre stabilite/fluidite/innovation/effort gelés
+        # entre deux évaluations du switch, ou neutre = uniformes), ils
+        # remplacent l'échelle d'erreur. Sinon : chemin natif 'erreur'
+        # strictement inchangé (continuité d'oracle).
+        # Porte auto-protégée (15/07) : trois cas EXPLICITES, zéro ambiguïté.
+        #  - clé ABSENTE  -> aucun système de perception configuré : chemin
+        #    historique (échelle d'erreur native), continuité d'oracle.
+        #  - 'erreur'     -> l'erreur est CHOISIE (par le switch ou en static) :
+        #    échelle vivante recalculée à chaque pas (c'est sa nature).
+        #  - tableau      -> poids d'un filtre (neutre/stabilite/fluidite/
+        #    innovation/effort), gelés entre deux évaluations du switch.
+        # Un None accidentel ne peut plus imposer l'erreur en silence.
+        _pw = config.get('perception_weights', 'erreur')
+        if _pw is None:
+            # Fallback-NEUTRE (Andréa, 15/07) : si un None passe malgré la
+            # sentinelle, on retombe sur le repos cohérent (poids uniformes,
+            # S = ΣOₙ) — jamais sur une erreur imposée en silence.
+            echelle_n = np.ones(N)
+        elif isinstance(_pw, str):
+            echelle_n = _echelle_attention(err, eps)   # 'erreur' choisie (ou clé absente)
+        else:
+            echelle_n = np.asarray(_pw, dtype=float)
 
         return float(np.sum(np.asarray(On_t, float) * echelle_n))
     
@@ -1840,3 +1924,62 @@ if __name__ == "__main__":
     print(f"  r(0) = {r_test:.4f}")
     
     print("\n✅ Module dynamics.py prêt à l'emploi!")
+
+# ============================================================================
+# FILTRES DE PERCEPTION S(t) (dernier chantier, spec 15/07/2026)
+# Un gabarit (_echelle_attention), six déficits. Exergue au manque : chaque
+# filtre amplifie les voix qui PÈCHENT sur sa dimension, la régulation résorbe
+# sans savoir explicitement sur quoi elle agit (diversité des solutions).
+# ============================================================================
+
+def compute_perception_deficit(kind: str, On_win: np.ndarray, An_win: np.ndarray,
+                               fn_win: np.ndarray, dt: float) -> np.ndarray:
+    """
+    Déficit par strate pour un filtre de perception (entrée du gabarit).
+
+    Args:
+        kind: 'stabilite' | 'fluidite' | 'innovation' | 'effort'
+              ('erreur' garde son chemin natif par pas ; 'neutre' = poids 1)
+        On_win, An_win, fn_win: fenêtres (T_w, N) des dernières valeurs
+        dt: pas de temps
+
+    Returns:
+        np.ndarray (N,) de déficits >= 0 (le gabarit auto-normalise par la
+        médiane du chœur : « combien de fois plus loin que la norme »)
+    """
+    N = On_win.shape[1]
+    eps = 1e-9
+    if kind == 'stabilite':
+        return np.std(On_win, axis=0)
+    if kind == 'effort':
+        dA = np.abs(np.diff(An_win, axis=0)) / (np.abs(An_win[1:]) + eps)
+        dF = np.abs(np.diff(fn_win, axis=0)) / (np.abs(fn_win[1:]) + eps)
+        return (dA + dF).mean(axis=0)
+    if kind == 'resilience':
+        # Tenue de soi LOCALE, grammaire allégée des enveloppes de santé :
+        # profondeur d'excursion de la voix en unités de son PROPRE IQR fenêtré
+        # (médiane/IQR = même vocabulaire que la santé globale ; pas d'épisodes
+        # ni de gel ici — c'est un signal de PONDÉRATION rapide, pas un verdict
+        # de santé ; le verdict complet reste l'affaire de resilience_env).
+        med = np.median(On_win, axis=0)
+        q75, q25 = np.percentile(On_win, [75, 25], axis=0)
+        iqr = np.maximum(q75 - q25, 1e-9)
+        return np.abs(On_win[-1] - med) / iqr
+    if kind in ('fluidite', 'innovation'):
+        out = np.zeros(N)
+        for n in range(N):
+            w = On_win[:, n] - On_win[:, n].mean()
+            P = np.abs(np.fft.rfft(w)) ** 2
+            tot = P.sum()
+            if tot < 1e-15:
+                out[n] = 0.0 if kind == 'fluidite' else 1.0  # plat : fluide / pauvre
+                continue
+            p = P / tot
+            if kind == 'fluidite':
+                freqs = np.fft.rfftfreq(len(w), dt)
+                out[n] = 1.0 - float(p[freqs <= 0.25 * (0.5 / dt)].sum())
+            else:
+                ent = -(p[p > 0] * np.log(p[p > 0])).sum() / max(np.log(len(p)), eps)
+                out[n] = 1.0 - float(ent)
+        return out
+    raise ValueError(f"filtre de perception inconnu : {kind}")

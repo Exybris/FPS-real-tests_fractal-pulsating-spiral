@@ -1,7 +1,7 @@
 {
   "system": {
     "N": 100,
-    "T": 100,
+    "T": 500,
     "dt": 0.1,
     "seed": 12345,
     "mode": "FPS",
@@ -30,6 +30,12 @@
         "t_retour",
         "max_median_ratio",
         "continuous_resilience",
+        "mu_Rloc(t)",
+        "D_rms(t)",
+        "D_max(t)",
+        "D_mean(t)",
+        "D_excursion(t)",
+        "resilience_env(t)",
         "adaptive_resilience",
         "temporal_coherence",
         "tau_S",
@@ -78,16 +84,16 @@
         }
       },
       "phased_config": {
-          "phases": [
+        "phases": [
           {
-              "start_pct": 0,  
-              "end_pct": 100,   
-              "type": "noise",     
-              "amplitude": 1.0,
-              "freq": 8.0,
-              "phase": 0.0
+            "start_pct": 0,
+            "end_pct": 100,
+            "type": "noise",
+            "amplitude": 1.0,
+            "freq": 8.0,
+            "phase": 0.0
           }
-          ]
+        ]
       },
       "scale": 1.2,
       "perturbations": [
@@ -121,7 +127,8 @@
     "epsilon": 0.1,
     "omega": 0.05,
     "theta": 0.0,
-    "signature_mode": "individual"
+    "signature_mode": "individual",
+    "signature_pattern": "pentagonal"
   },
   "enveloppe": {
     "env_type": "gaussienne",
@@ -133,7 +140,10 @@
       "freq": 0.3,
       "offset": 0.1,
       "T": 50
-    }
+    },
+    "sigma_mode": "relative",
+    "sigma_rel_k": 1.5,
+    "sigma_rel_window_t": 10
   },
   "latence": {
     "gamma_mode": "adaptive_aware",
@@ -157,8 +167,8 @@
     "phi_fixed_value": 1.618,
     "phi_adaptive": {
       "enabled": true,
-      "effort_low": 0.5,
-      "effort_high": 5,
+      "effort_low": 5.0,
+      "effort_high": 50.0,
       "phi_min": 0.9,
       "phi_max": 1.618,
       "use_chronic_detection": true
@@ -204,18 +214,18 @@
   },
   "to_calibrate": {
     "variance_d2S": 0.01,
-    "fluidity_threshold": 0.3,
+    "fluidity_threshold": 0.035,
     "stability_ratio": 10,
     "resilience": 2,
     "entropy_S": 0.5,
     "cpu_step_ctrl": 2,
-    "d_effort_dt": 5,
-    "effort_chronique_threshold": 1.5,
-    "effort_transitoire_threshold": 2.0,
+    "d_effort_dt": 50,
+    "effort_chronique_threshold": 75,
+    "effort_transitoire_threshold": 150,
     "env_n": "gaussienne",
     "gamma_n": 1.0,
     "max_chaos_events": 5,
-    "mean_high_effort": 2,
+    "mean_high_effort": 20,
     "sigma_n": 0.1,
     "t_retour": 1
   },
@@ -311,5 +321,49 @@
   },
   "visualization": {
     "strata_sample_percent": 0.15
+  },
+  "resilience_v2": {
+    "mode": "auto",
+    "k_iqr": 1.5,
+    "iqr_floor_rel": 0.05,
+    "iqr_floor_abs": 0.000001,
+    "tau_ref": 10.0,
+    "w_depth": 0.5,
+    "w_time": 0.5,
+    "aggregation": "rms",
+    "rigidity_watch": true,
+    "recal_stability_factor": 1.5,
+    "depth_memory": "worst",
+    "depth_compression": "log",
+    "spike_threshold": 1.0,
+    "score_brackets": [
+      0.9,
+      0.75,
+      0.6,
+      0.4
+    ],
+    "W_env_t": 10.0,
+    "warmup_t": 2.0,
+    "debounce_t": 0.3,
+    "T_recal_t": 20.0,
+    "W_mem_t": 50.0
+  },
+  "perception": {
+    "filter_mode": "auto",
+    "filter": "erreur",
+    "filters_enabled": [
+      "erreur",
+      "stabilite",
+      "fluidite",
+      "innovation",
+      "effort",
+      "resilience"
+    ],
+    "W_f_t": 5,
+    "T_switch_t": 5,
+    "dwell_t": 10,
+    "seuil_declenchement": 3,
+    "seuil_sortie": 3,
+    "floor": 0.1
   }
 }

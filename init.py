@@ -52,21 +52,48 @@ def generate_strates(N, seed=42):
                     weight = rng.uniform(-0.9, -0.3)
                 if rng.random() < 0.3:
                     weight = -weight
-                w.append(round(weight, 1))
+                w.append(round(weight, 3))
         
         strates.append({
             'id': i,
             'A0': round(float(A0), 6),
-            'f0': round(float(f0), 1),
+            'f0': round(float(f0), 3),  # 3 décimales partout (14/07/2026) : solistes,
+            # plus de chœurs d'arrondis (f0 n'avait que 21 valeurs distinctes sur 100)
             'phi': phi,
-            'alpha': round(float(alpha), 2),
-            'beta': round(float(beta), 2),
-            'k': round(float(k), 1),
+            'alpha': round(float(alpha), 3),
+            'beta': round(float(beta), 3),
+            'k': round(float(k), 3),
             'x0': round(float(x0), 2),
             'w': w
         })
     
     return strates
+
+
+def apply_signature_pattern(config):
+    """
+    Signatures individuelles (dernier STILL, 14/07/2026) — config-gatée.
+
+    spiral.signature_pattern :
+      - "none" (défaut) : toutes les signatures restent à 0.0 — comportement
+        historique STRICT, neutralité prouvée bit à bit.
+      - "pentagonal" : φ_sig_n = 2π·(n mod 5)/5 — le « pentagone » du design
+        d'origine (commentaire de compute_phi_n). Réveille le canal d'affinités
+        cos(φ_sig_n − φ_sig_j) et la différenciation par cos(φ_signature) :
+        les affinités par paire ne valent plus toutes 1, la factorisation sur
+        les sommes de lignes de W se brise, le terme inter-strates VIT.
+
+    La signature reste l'IDENTITÉ invariante (jamais réécrite en run).
+    """
+    pattern = config.get('spiral', {}).get('signature_pattern', 'none')
+    if pattern == 'pentagonal':
+        strates = config.get('strates', [])
+        for n, s in enumerate(strates):
+            s['phi'] = round(2.0 * np.pi * (n % 5) / 5.0, 6)
+        print(f"🖐️ SIGNATURES PENTAGONALES : {len(strates)} strates, φ_sig ∈ {{0, 2π/5, 4π/5, 6π/5, 8π/5}}")
+    elif pattern != 'none':
+        print(f"⚠️ signature_pattern '{pattern}' inconnu — signatures laissées à 0.0")
+    return config
 
 
 def apply_chimera_init(config):
@@ -191,10 +218,7 @@ def init_strates(config):
     if len(existing_strates) != N:
         print(f"🔧 Auto-génération de {N} strates (config en contient {len(existing_strates)}, seed={seed})")
         config['strates'] = generate_strates(N, seed)
-        config['strates'] = generate_strates(N, seed)
-        print(f"DIAG init_strates: seed={seed}, N={N}")
-        print(f"DIAG init_strates: betas={[s['beta'] for s in config['strates']]}")
-        print(f"DIAG init_strates: A0s={[s['A0'] for s in config['strates']]}")
+        config = apply_signature_pattern(config)
         config = apply_chimera_init(config)
         print(f"   ✅ {N} strates générées et injectées dans la config")
     

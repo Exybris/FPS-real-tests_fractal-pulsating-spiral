@@ -26,6 +26,15 @@ import warnings
 
 # ============== ARCHÉTYPES DE RÉGULATION G(x) ==============
 
+# ── SENTINELLE PORTAGE (14/07/2026) ─────────────────────────────────────────
+# compute_G reçoit aujourd'hui l'erreur ABSOLUE (en unités de signal) : le
+# lambda et les formes des archétypes sont calibrés pour cette échelle.
+# Convention maison portable : l'erreur RELATIVE (voir _echelle_attention,
+# dynamics.py). Harmonisation absolue → relative PRÉVUE AU PORTAGE (pas avant :
+# toucher les entrées de G recalibre tous les archétypes, casse profonde à
+# faire une fois, dans le nouveau substrat). Détail au catalogue, section
+# « Harmonisation de la convention d'erreur ».
+# ─────────────────────────────────────────────────────────────────────────────
 def compute_G(x: Union[float, np.ndarray], archetype: str = "tanh", 
               params: Optional[Dict[str, float]] = None) -> Union[float, np.ndarray]:
     """
@@ -102,6 +111,10 @@ def compute_G(x: Union[float, np.ndarray], archetype: str = "tanh",
         # (paire decide_G_adaptive_aware / evaluate_G_adaptive_aware).
         # Pour éviter une dépendance circulaire, on retourne simplement tanh ici
         # La vraie logique adaptive_aware est dans dynamics.py
+        # Secours désormais BRUYANT : un aiguillage raté vers cette branche
+        # doit être visible, comme l'est un archétype inconnu (cohérence).
+        warnings.warn("compute_G appelé avec 'adaptive_aware' : secours tanh utilisé. "
+                      "La vraie logique vit dans decide_/evaluate_G_adaptive_aware (dynamics.py).")
         lambda_val = params.get("lambda", 1.0)
         return np.tanh(lambda_val * x)
     

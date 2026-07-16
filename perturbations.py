@@ -205,14 +205,20 @@ def generate_bruit(t: float, config: PerturbationConfig) -> float:
     Returns:
         float: valeur aléatoire
     """
-    # Seed pour reproductibilité si spécifiée
+    # Seed pour reproductibilité si spécifiée — sur un RNG PRIVÉ (fix 14/07/2026) :
+    # l'ancien np.random.seed(...) par pas réensemençait le flux GLOBAL, enchevêtrant
+    # le tirage du bruit avec tous les autres consommateurs (dont le randn
+    # d'exploration de gamma). Le RandomState privé produit des valeurs
+    # bit-identiques à l'ancien comportement (même seed par t, premier tirage
+    # du flux), sans plus jamais toucher au flux global.
     if config.seed is not None:
-        # Seed basée sur le temps pour variation mais reproductible
-        np.random.seed(int(config.seed + t * 1000) % 2**32)
-    
+        rng = np.random.RandomState(int(config.seed + t * 1000) % 2**32)
+    else:
+        rng = np.random.RandomState(int(t * 1000) % 2**32)
+
     # Type de bruit (uniforme par défaut)
     # On pourrait étendre avec un paramètre noise_type
-    return config.amplitude * np.random.uniform(-1, 1)
+    return config.amplitude * rng.uniform(-1, 1)
 
 
 # ============== APPLICATION DES PERTURBATIONS ==============

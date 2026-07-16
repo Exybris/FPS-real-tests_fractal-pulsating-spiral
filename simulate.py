@@ -48,8 +48,14 @@ import utils
 from utils import deep_convert, extract_best_pair_from_journal
 
 def safe_float_conversion(value, default=0.0):
-    """Convertit une valeur en float sûr."""
+    """Convertit une valeur en float sûr.
+
+    None = verdict suspendu / absent → NaN (cellule vide dans le CSV),
+    JAMAIS 0.0 : écrire zéro à la place d'une absence de verdict est un
+    mensonge de logging (0 = catastrophique, None = pas encore jugé)."""
     try:
+        if value is None:
+            return float('nan')
         if isinstance(value, str):
             return default
         if np.isnan(value) or np.isinf(value):
@@ -135,6 +141,53 @@ def run_simulation(config_path, mode="FPS", strict=False):
 
 # --- MODE FPS (Pipeline complet) ------------------------------------------
 # --- MODE FPS (Pipeline complet) ------------------------------------------
+def check_chimera_reset(t, T, config, state, phase_acc):
+    """
+    Tests chimériques 2 et 3 — resets mid-run (robustesse de l'état chimérique).
+    Porté depuis NOTEBOOK_FPS.ipynb cell 12, adapté à l'architecture pipeline :
+
+    - reset_frequencies_midrun : réécrit f0 (l'ancre persistante) de chaque strate.
+      NOTE portage : resetter fn_t serait sans effet (recalculé chaque pas depuis f0).
+    - reset_phases_midrun : remet phase_acc (phase intégrée θ) à la valeur cible.
+      NOTE portage : ne touche JAMAIS state['phi'] (signature invariante,
+      convention catalogue « ne jamais assigner θ → φₙ »).
+
+    Chaque reset se déclenche une seule fois (flag 'triggered'), à t >= t_reset·T.
+
+    Args:
+        t: temps courant
+        T: durée totale du run
+        config: configuration (lit/écrit config['chimera_tests'])
+        state: état des strates (f0 modifié in-place si reset fréquences)
+        phase_acc: accumulateur de phase (np.ndarray, modifié in-place si reset phases)
+
+    Returns:
+        phase_acc (même objet, pour lisibilité de l'appel)
+    """
+    chimera_cfg = config.get('chimera_tests', {})
+    if not chimera_cfg:
+        return phase_acc
+
+    freq_reset = chimera_cfg.get('reset_frequencies_midrun', {})
+    if (freq_reset.get('enabled', False) and not freq_reset.get('triggered', False)
+            and t >= freq_reset.get('t_reset', 0.5) * T):
+        value = freq_reset.get('value', 1.0)
+        for strate in state:
+            strate['f0'] = value
+        freq_reset['triggered'] = True
+        print(f"\n🔬 CHIMERA RESET @ t={t:.1f}: toutes les f0 → {value} Hz")
+
+    phase_reset = chimera_cfg.get('reset_phases_midrun', {})
+    if (phase_reset.get('enabled', False) and not phase_reset.get('triggered', False)
+            and t >= phase_reset.get('t_reset', 0.5) * T):
+        value = phase_reset.get('value', 0.0)
+        phase_acc[:] = value
+        phase_reset['triggered'] = True
+        print(f"\n🔬 CHIMERA RESET @ t={t:.1f}: phase intégrée (phase_acc) → {value}")
+
+    return phase_acc
+
+
 def run_fps_simulation(config, state, loggers, strict=False):
     """
     Boucle principale FPS, version exhaustive :
@@ -160,6 +213,43 @@ def run_fps_simulation(config, state, loggers, strict=False):
     F_n_t_An = np.zeros(N)
     F_n_t_fn = np.zeros(N)
     phase_acc = np.zeros(N)
+
+    # --- μ_Rloc en boucle (lot v2) : cohérence locale réelle sur θ intégrée ---
+    # Voisinage et poids |W| normalisés, mêmes conventions que kuramoto_local2.
+    # Sert de mesure de tenue de soi au repos (résilience mesurée, pas décrétée).
+    _rloc_neigh = []
+    for _n in range(N):
+        _w = np.asarray(state[_n].get('w', []), dtype=float) if state and len(state) > _n else np.array([])
+        _idx = np.nonzero(np.abs(_w) > 1e-12)[0] if _w.size else np.array([], dtype=int)
+        if _idx.size:
+            _pw = np.abs(_w[_idx]); _pw = _pw / _pw.sum()
+        else:
+            _pw = np.array([])
+        _rloc_neigh.append((_idx, _pw))
+    mu_Rloc_history = []
+    # Résilience par enveloppes de santé (étage 2, spec 13/07/2026)
+    resilience_env_state = metrics.init_resilience_envelope_state(config) if hasattr(metrics, 'init_resilience_envelope_state') else None
+    resilience_mode = config.get('resilience_v2', {}).get('mode', 'auto')
+    # Filtres de perception (spec 15/07/2026) — état du switch
+    _pcfg = config.get('perception', {})
+    perception_mode = _pcfg.get('filter_mode', 'static')
+    # En AUTO, le système NAÎT neutre (le repos perceptif, design d'Andréa) :
+    # 'erreur' n'est plus jamais un repli structurel, seulement un remède CHOISI.
+    # En STATIC, le filtre configuré s'applique tel quel.
+    _f0 = 'neutre' if _pcfg.get('filter_mode', 'static') == 'auto' else _pcfg.get('filter', 'erreur')
+    perception_state = {
+        'filter': _f0,
+        'weights': (np.ones(config['system']['N']) if _f0 == 'neutre' else None),
+        'last_eval_t': -1e9, 'last_switch_t': -1e9,
+        'W_f': max(10, int(round(float(_pcfg.get('W_f_t', 5.0)) / dt))),
+        'T_switch': float(_pcfg.get('T_switch_t', 5.0)),
+        'dwell': float(_pcfg.get('dwell_t', 10.0)),
+        'seuil_in': int(_pcfg.get('seuil_declenchement', 3)),
+        'seuil_out': int(_pcfg.get('seuil_sortie', 3)),
+        'enabled': _pcfg.get('filters_enabled', ['erreur','stabilite','fluidite','innovation','effort']),
+    }
+    # Barèmes du score de résilience en CONFIG (calibration sans toucher au code)
+    _rb = config.get('resilience_v2', {}).get('score_brackets', [0.90, 0.75, 0.60, 0.40])
 
     # Historiques avec limite de mémoire
     MAX_HISTORY_SIZE = config.get('system', {}).get('max_history_size', 10000)
@@ -209,20 +299,14 @@ def run_fps_simulation(config, state, loggers, strict=False):
             fn_writer.writerow(['t', f'f_{n}(t)'])
             individual_csv_writers[f'f_{n}'] = {'file': fn_file, 'writer': fn_writer}
     
-    print(f"DIAG strates: betas={[s['beta'] for s in state]}")
-    print(f"DIAG strates: f0s={[s['f0'] for s in state]}")
-    print(f"DIAG strates: A0s={[s['A0'] for s in state]}")
-
     # -- BOUCLE PRINCIPALE --
     try:
         for step, t in enumerate(t_array):
             step_start = time.perf_counter()
 
-            if step == 1:
-                print(f"DIAG step1: F_n_t_An={F_n_t_An}")
-                print(f"DIAG step1: F_n_t_fn={F_n_t_fn}")
-                print(f"DIAG step1: In_t_before={In_t if 'In_t' in dir() else 'N/A'}")
-            
+            # Tests chimériques 2/3 : resets mid-run (no-op si non configurés)
+            phase_acc = check_chimera_reset(t, T, config, state, phase_acc)
+
             # ----------- 1. INPUTS ET PERTURBATIONS -----------
             # Nouvelle architecture In(t)
             input_config = config.get('system', {}).get('input', {})
@@ -253,11 +337,61 @@ def run_fps_simulation(config, state, loggers, strict=False):
             # (perturbations déjà appliquées ; métriques et logging seront chronométrés après)
             core_start = time.perf_counter()
             
+            # ================= RÉORDONNANCEMENT DU PAS (15/07/2026) =============
+            # φ_reg → Eₙ calculé UNE FOIS ici, puis passé à compute_An (enveloppe)
+            # et compute_S (erreur relative) via les configs. Avant : Eₙ était
+            # calculé TROIS fois par pas, les deux appels internes recomputant
+            # leur propre φ depuis history SANS le buffer d'effort (micro-
+            # divergences avec l'officiel). Une seule vérité désormais.
+            # b) Calcul de phi adaptatif (alignement notebook)
+            try:
+                phi_mode = config.get('regulation', {}).get('phi_mode', 'fixed')
+                
+                if phi_mode == 'adaptive':
+                    # Récupérer l'effort actuel depuis history
+                    if len(history) > 0 and 'effort(t)' in history[-1]:
+                        effort_current = history[-1].get('effort(t)', 0.0)
+                    else:
+                        effort_current = 0.0
+                    
+                    # Prendre les 20 derniers éléments pour phi_adaptive
+                    effort_for_phi = effort_history[-20:] if len(effort_history) > 0 else [0.0]
+                    
+                    # Calculer phi adaptatif
+                    phi_reg = dynamics.compute_phi_adaptive(effort_current, effort_for_phi, config)
+                else:
+                    # Mode fixe
+                    phi_reg = config.get('regulation', {}).get('phi_fixed_value', 1.618)
+            except Exception as e:
+                print(f"⚠️ Erreur calcul phi adaptatif à t={t}: {e}")
+                phi_reg = config.get('regulation', {}).get('phi_fixed_value', 1.618)
+            
+            En_t = dynamics.compute_En(t, state, history, config, phi_reg, effort_history) if hasattr(dynamics, 'compute_En') else None
+
             # a) Amplitude, fréquence, phase, latence par strate (avec statique/dynamique, config.json)
             try:
                 # IMPORTANT: Ajouter l'historique à la config pour compute_An avec enveloppe dynamique
                 config_for_An = config.copy()
                 config_for_An['history'] = history
+                config_for_An['En_ext'] = En_t
+                # σₙ RELATIF (dossier mu_n, 15/07/2026) — config-gaté, défaut intact.
+                # enveloppe.sigma_mode='relative' : σ = max(k·IQR des erreurs
+                # récentes, plancher) — la tolérance suit l'échelle d'erreur
+                # PROPRE du système (sans dimension, portable), au lieu du 0.1
+                # absolu qui faisait chuchoter la cloche (facteurs ~0.98).
+                if config.get('enveloppe', {}).get('sigma_mode', 'static') == 'relative':
+                    _sk = float(config['enveloppe'].get('sigma_rel_k', 1.5))
+                    _sw = max(10, int(round(float(config['enveloppe'].get('sigma_rel_window_t', 10.0)) / dt)))
+                    _errs = []
+                    for _h in history[-_sw:]:
+                        _e = _h.get('E'); _o = _h.get('O')  # clés history : 'E' et 'O' (l.993)
+                        if _e is not None and _o is not None and len(_e) and len(_o):
+                            _errs.append(np.abs(np.asarray(_e) - np.asarray(_o)))
+                    if len(_errs) >= 10:
+                        _ev = np.concatenate(_errs)
+                        _q75, _q25 = np.percentile(_ev, [75, 25])
+                        config_for_An['sigma_n_override'] = float(max(_sk * (_q75 - _q25), 1e-4))
+                    # sinon : pas assez d'histoire -> compute_An garde le statique (warmup)
                 An_t = dynamics.compute_An(t, state, In_t, F_n_t_An, config_for_An)
                 An_history.append(An_t.copy())                
                 # Passer l'historique dans la config pour compute_fn
@@ -317,40 +451,30 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 phi_n_t = np.zeros(N)
                 gamma_n_t = np.ones(N)
             
-            # b) Calcul de phi adaptatif (alignement notebook)
-            try:
-                phi_mode = config.get('regulation', {}).get('phi_mode', 'fixed')
-                
-                if phi_mode == 'adaptive':
-                    # Récupérer l'effort actuel depuis history
-                    if len(history) > 0 and 'effort(t)' in history[-1]:
-                        effort_current = history[-1].get('effort(t)', 0.0)
-                    else:
-                        effort_current = 0.0
-                    
-                    # Prendre les 20 derniers éléments pour phi_adaptive
-                    effort_for_phi = effort_history[-20:] if len(effort_history) > 0 else [0.0]
-                    
-                    # Calculer phi adaptatif
-                    phi_reg = dynamics.compute_phi_adaptive(effort_current, effort_for_phi, config)
-                else:
-                    # Mode fixe
-                    phi_reg = config.get('regulation', {}).get('phi_fixed_value', 1.618)
-            except Exception as e:
-                print(f"⚠️ Erreur calcul phi adaptatif à t={t}: {e}")
-                phi_reg = config.get('regulation', {}).get('phi_fixed_value', 1.618)
+            # (φ_reg est désormais calculé en TÊTE de pas — réordonnancement 15/07/2026)
             
             phase_acc += 2 * np.pi * fn_t * dt
             phase_inst = phase_acc + phi_n_t 
 
+            # μ_Rloc(t) : cohérence locale moyenne sur la phase intégrée θ.
+            # (La strate sans voisins — bord de spirale ouverte — vaut 1.0 par
+            # convention, comme dans kuramoto_local2.)
+            _z = np.exp(1j * phase_inst)
+            _rl = np.array([np.abs(np.sum(pw * _z[idx])) if idx.size else 1.0
+                            for idx, pw in _rloc_neigh])
+            mu_Rloc_t = float(np.mean(_rl))
+            mu_Rloc_history.append(mu_Rloc_t)
+
             # c) Sorties observée/attendue
             try:
                 On_t = dynamics.compute_On(t, state, An_t, fn_t, phi_n_t, phase_inst, config) if hasattr(dynamics, 'compute_On') else An_t
-                En_t = dynamics.compute_En(t, state, history, config, phi_reg, effort_history) if hasattr(dynamics, 'compute_En') else An_t
+                if En_t is None:
+                    En_t = An_t  # fallback : compute_En absent du module
             except Exception as e:
-                print(f"⚠️ Erreur compute On/En à t={t}: {e}")
+                print(f"⚠️ Erreur compute On à t={t}: {e}")
                 On_t = An_t
-                En_t = An_t
+                if En_t is None:
+                    En_t = An_t
             
             # d) Régulation/adaptation feedback
             try:                
@@ -448,18 +572,17 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 else:
                     G_arch_dominant = G_arch_mode
 
-                if step == 0:
-                    print(f"DIAG step0 post-reg: F_n_t_An={F_n_t_An}")
-                    print(f"DIAG step0 post-reg: G_values={[debug_log_data['G_values']]}")
-                
             except Exception as e:
                 print(f"⚠️ Erreur régulation à t={t}: {e}")
             
             # d) Update état complet du système
             try:
                 state = dynamics.update_state(state, An_t, fn_t, phi_n_t, gamma_n_t, F_n_t_fn, F_n_t_An) if hasattr(dynamics, 'update_state') else state
-                # Mesurer le coût CPU « dynamique pur » (du core_start à la fin de update_state)
-                cpu_step = metrics.compute_cpu_step(core_start, time.perf_counter(), N) if hasattr(metrics, 'compute_cpu_step') else 0.0
+                # Temps mur « dynamique pur » : profilage uniquement, ne pilote RIEN.
+                wall_time_step = metrics.compute_cpu_step(core_start, time.perf_counter(), N) if hasattr(metrics, 'compute_cpu_step') else 0.0
+                # Coût CPU DÉTERMINISTE : c'est lui qui alimente cpu_cost → γ, pour
+                # une parité bit-à-bit indépendante de la machine.
+                cpu_step = metrics.compute_cpu_step_deterministic(N) if hasattr(metrics, 'compute_cpu_step_deterministic') else 0.0
             except Exception as e:
                 print(f"⚠️ Erreur update state à t={t}: {e}")
             
@@ -467,9 +590,91 @@ def run_fps_simulation(config, state, loggers, strict=False):
             try:
                 # Préparer config enrichie pour mode étendu de S(t)
                 # ALIGNEMENT NOTEBOOK: config complète + gamma_n_t pré-calculé
+                # ===== SWITCH DE PERCEPTION (spec 15/07/2026) =====
+                # Évaluation toutes les T_switch u.t. ; poids GELÉS entre deux
+                # évaluations. Repos = neutre (perception nue, doublon de O),
+                # pire dimension < seuil -> son filtre-remède (dwell + hystérésis).
+                _need_w = perception_mode == 'auto' or perception_state['filter'] not in ('erreur',)
+                if _need_w and (t - perception_state['last_eval_t']) >= perception_state['T_switch']:
+                    perception_state['last_eval_t'] = t
+                    _Wf = perception_state['W_f']
+                    if len(history) >= _Wf:
+                        _O_agg = np.array([np.sum(h['O']) for h in history[-_Wf:]])
+                        _o_scores = {}
+                        _o_scores['stabilite'] = metrics.score_from_brackets(float(np.std(_O_agg)), 'stability')
+                        _o_scores['fluidite'] = metrics.score_from_brackets(
+                            metrics.compute_fluidity_spectral(_O_agg, dt), 'fluidity')
+                        _o_scores['innovation'] = metrics.score_from_brackets(
+                            float(metrics.compute_entropy_S(_O_agg, 1.0/dt)), 'innovation')
+                        _errs_abs = [np.mean(np.abs(np.asarray(h['E']) - np.asarray(h['O']))) for h in history[-_Wf:]]
+                        _o_scores['erreur'] = metrics.score_from_brackets(float(np.mean(_errs_abs)), 'regulation')
+                        _o_scores['effort'] = metrics.score_from_brackets(
+                            float(np.mean(effort_history[-_Wf:])) if effort_history else 0.0, 'effort')
+                        # RÉSILIENCE (déverrouillée par Andréa, 15/07 nuit) : son score
+                        # EXISTE déjà et est le seul nativement non-contaminé par S —
+                        # l'enveloppe lit μ_Rloc/effort/erreur, jamais la perception.
+                        # On branche l'existant, on ne recalcule rien.
+                        _res_vals = [h.get('adaptive_resilience') for h in history[-_Wf:]]
+                        _res_vals = [v for v in _res_vals if v is not None]
+                        if _res_vals:
+                            _o_scores['resilience'] = metrics.score_from_brackets(
+                                float(np.mean(_res_vals)), 'resilience')
+                        _o_scores = {k: v for k, v in _o_scores.items() if k in perception_state['enabled']}
+                        if perception_mode == 'auto':
+                            # ANTI-CAMPEMENT (règle d'Andréa) : un remède tenu 3 x dwell
+                            # sans amélioration est mis en retrait jusqu'à ce que son
+                            # score bouge — on n'insiste pas sur ce qui ne soigne pas.
+                            _cur = perception_state['filter']
+                            _bl = perception_state.setdefault('blacklist', {})
+                            for _k in list(_bl):
+                                if _o_scores.get(_k, 5) != _bl[_k]:
+                                    del _bl[_k]
+                            if _cur != 'neutre' and _cur in _o_scores:
+                                _held = t - perception_state['last_switch_t']
+                                if _held >= 3 * perception_state['dwell'] and \
+                                   _o_scores[_cur] <= perception_state.get('engaged_score', 5):
+                                    _bl[_cur] = _o_scores[_cur]
+                                    perception_state['filter'] = 'neutre'
+                                    perception_state['last_switch_t'] = t
+                                    perception_state['weights'] = np.ones(N)
+                            _cands = {k: v for k, v in _o_scores.items() if k not in _bl}
+                            _cur = perception_state['filter']
+                            _can_switch = (t - perception_state['last_switch_t']) >= perception_state['dwell']
+                            _target = _cur
+                            if _cur != 'neutre' and _cur in _o_scores and _o_scores[_cur] >= perception_state['seuil_out'] \
+                               and (not _cands or min(_cands.values()) >= perception_state['seuil_in']):
+                                _target = 'neutre'
+                            if _cands and min(_cands.values()) < perception_state['seuil_in']:
+                                _target = min(_cands, key=_cands.get)
+                            if _target != _cur and _can_switch:
+                                perception_state['filter'] = _target
+                                perception_state['last_switch_t'] = t
+                                perception_state['engaged_score'] = _o_scores.get(_target, 3)
+                        # (re)calcul des poids gelés du filtre actif
+                        _f = perception_state['filter']
+                        if _f == 'erreur':
+                            perception_state['weights'] = None      # chemin natif par pas
+                        elif _f == 'neutre':
+                            perception_state['weights'] = np.ones(N)
+                        else:
+                            _Ow = np.array([h['O'] for h in history[-_Wf:]])
+                            _Aw = np.array([h['An'] for h in history[-_Wf:]])
+                            _Fw = np.array([h['fn'] for h in history[-_Wf:]])
+                            _def = dynamics.compute_perception_deficit(_f, _Ow, _Aw, _Fw, dt)
+                            perception_state['weights'] = dynamics._echelle_attention(_def)
                 config_for_S = config.copy()
                 config_for_S['state'] = state
                 config_for_S['history'] = history
+                config_for_S['En_ext'] = En_t
+                # UNIFICATION On (15/07 soir, même patron que le En) : le S
+                # consomme LE On du pas (section c, celui de l'history et des
+                # erreurs) au lieu de le recalculer sur un état déjà muté par
+                # la régulation. Rend le filtre neutre EXACTEMENT ΣOₙ.
+                config_for_S['On_ext'] = On_t
+                # Sentinelle EXPLICITE (15/07, question d'Andréa) : jamais de None
+                # ambigu — 'erreur' est demandée en toutes lettres, sinon des poids.
+                config_for_S['perception_weights'] = (perception_state['weights']
+                    if perception_state['weights'] is not None else 'erreur')
                 config_for_S['gamma'] = gamma_t
                 S_t = dynamics.compute_S(t, An_t, fn_t, phi_n_t, phase_inst, config_for_S, gamma_n_t=gamma_n_t) if hasattr(dynamics, 'compute_S') else 0.0
                 
@@ -548,15 +753,21 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 delta_fn = np.zeros(N)
                 delta_gamma_n = np.zeros(N)
             
+            # EFFORT EN TAUX (lot v3, 14/07/2026) : changement relatif PAR UNITÉ
+            # DE TEMPS (avant : par pas — dépendant du dt, audit mesuré 0.67x à
+            # dt=0.05). Seuils et barèmes x10 partout : équivalence stricte à dt=0.1.
             effort_t = metrics.compute_effort(delta_An, delta_fn, delta_gamma_n,
-                np.mean(An_t), np.mean(fn_t), gamma_t)
+                np.mean(An_t), np.mean(fn_t), gamma_t) / dt
 
             effort_history.append(effort_t)
             effort_status = metrics.compute_effort_status(effort_t, effort_history, config) if hasattr(metrics, 'compute_effort_status') else "stable"
             
             # Calcul variance_d2S / fluidité (aligné notebook : pas de garde, compute_fluidity gère)
             variance_d2S = metrics.compute_variance_d2S(S_history, dt) if len(S_history) >= 3 else 0
-            fluidity = metrics.compute_fluidity(variance_d2S)
+            # FLUIDITÉ SPECTRALE (lot v3) — variance_d2S reste calculée et loggée
+            # en diagnostic (legacy, dt-liée), mais ne pilote plus la fluidité.
+            _fl_win = max(10, int(round(5.0 / dt)))  # fenêtre de 5 unités de temps
+            fluidity = metrics.compute_fluidity_spectral(S_history[-_fl_win:], dt)
             
             # Calcul entropy_S (innovation)
             if len(S_history) >= 10:
@@ -630,14 +841,17 @@ def run_fps_simulation(config, state, loggers, strict=False):
             else:
                 t_retour = 0.0
             
-            # Calcul résilience continue - pour perturbations non-ponctuelles
-            # Check for perturbations in the new structure
+            # Résilience continue — pour perturbations non-ponctuelles.
             perturbations_list = config.get('system', {}).get('input', {}).get('perturbations', [])
             perturbation_active = len(perturbations_list) > 0 and any(p.get('type', 'none') != 'none' for p in perturbations_list)
-            if len(C_history) >= 20 and len(S_history) >= 20:
+            # On passe le VRAI perturbation_active. La fonction décide :
+            # pas de perturbation → None (au repos, la tenue de soi est mesurée
+            # par μ_Rloc, pas décrétée) ; sous perturbation mais < 20 pts →
+            # None aussi (verdict suspendu, humilité de démarrage).
+            if hasattr(metrics, 'compute_continuous_resilience'):
                 continuous_resilience = metrics.compute_continuous_resilience(
-                    C_history, S_history, True
-                ) if hasattr(metrics, 'compute_continuous_resilience') else 1.0
+                    C_history, S_history, perturbation_active
+                )
             else:
                 continuous_resilience = 1.0
             
@@ -647,15 +861,41 @@ def run_fps_simulation(config, state, loggers, strict=False):
             else:
                 max_median_ratio = 1.0
             
-            # NOUVEAU: Calcul de la résilience adaptative
+            # Résilience (lot v2 + étage 2 enveloppes, spec 13/07/2026) :
+            # Les enveloppes de santé sont TOUJOURS calculées et loggées
+            # (route de validation). Le score fourni à gamma dépend du mode :
+            #   'auto'     : enveloppes au repos, chemin typé sous perturbation
+            #   'envelope' : enveloppes partout (mode terrain)
+            #   'typed'    : chemin typé partout (rétro-compatibilité)
+            env_result = None
+            if resilience_env_state is not None and hasattr(metrics, 'update_resilience_envelope'):
+                env_result = metrics.update_resilience_envelope(
+                    resilience_env_state,
+                    {'mu_Rloc': mu_Rloc_t, 'effort': effort_t, 'mean_abs_error': mean_abs_error},
+                    t, dt
+                )
+            use_envelope = (resilience_mode == 'envelope') or \
+                           (resilience_mode == 'auto' and not perturbation_active)
             adaptive_resilience = 0.0
             adaptive_resilience_score = 3
-            if hasattr(metrics, 'compute_adaptive_resilience'):
-                # Créer un dict temporaire avec les métriques actuelles
+            if use_envelope and env_result is not None:
+                adaptive_resilience = env_result['value']
+                if adaptive_resilience is None:
+                    adaptive_resilience_score = 3  # warmup : verdict suspendu
+                else:
+                    adaptive_resilience_score = (5 if adaptive_resilience >= _rb[0] else
+                                                 4 if adaptive_resilience >= _rb[1] else
+                                                 3 if adaptive_resilience >= _rb[2] else
+                                                 2 if adaptive_resilience >= _rb[3] else 1)
+            elif hasattr(metrics, 'compute_adaptive_resilience'):
+                # Créer un dict temporaire avec les métriques actuelles.
+                # Moyenne None-safe : un verdict suspendu (None) ne compte pas.
+                cont_vals = [v for v in (h.get('continuous_resilience') for h in history[-100:]) if v is not None]
+                cont_mean = float(np.mean(cont_vals)) if cont_vals else None
                 current_metrics = {
                     't_retour': t_retour,
                     'continuous_resilience': continuous_resilience,
-                    'continuous_resilience_mean': np.mean([h.get('continuous_resilience', 1.0) for h in history[-100:] if 'continuous_resilience' in h]) if len(history) > 0 else continuous_resilience
+                    'continuous_resilience_mean': cont_mean
                 }
                 
                 # Calculer la résilience adaptative
@@ -682,6 +922,7 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 'E(t)': E_t,
                 'L(t)': L_t,
                 'cpu_step(t)': cpu_step,
+                'wall_time_step(t)': wall_time_step if 'wall_time_step' in locals() else 0.0,
                 'effort(t)': effort_t,
                 'A_mean(t)': A_mean_t,
                 'f_mean(t)': f_mean_t,
@@ -701,6 +942,14 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 't_retour': t_retour,
                 'max_median_ratio': max_median_ratio,
                 'continuous_resilience': continuous_resilience,
+                'mu_Rloc(t)': mu_Rloc_t,
+                'resilience_env(t)': (env_result['value'] if env_result else None),
+                'D_excursion(t)': (env_result['D'] if env_result else 0.0),
+                'D_mean(t)': (env_result['D_mean'] if env_result else 0.0),
+                'D_max(t)': (env_result['D_max'] if env_result else 0.0),
+                'D_rms(t)': (env_result['D_rms'] if env_result else 0.0),
+                'resilience_metric_used': (env_result['metric_used'] if env_result else None),
+                'perception_filter': perception_state['filter'],
                 'adaptive_resilience': adaptive_resilience,
                 'adaptive_resilience_score': adaptive_resilience_score,
                 'En_mean(t)': En_mean_t,
@@ -725,10 +974,19 @@ def run_fps_simulation(config, state, loggers, strict=False):
             all_metrics['best_pair_G'] = str(best_G) if best_G is not None else ''
             all_metrics['best_pair_score'] = float(best_score) if best_score is not None else float('nan')
             
+            # Résilience : None = verdict suspendu (humilité, sous perturbation
+            # mais pas assez vécu). On le garde comme "donnée absente" (cellule
+            # vide via NaN), jamais un 0 trompeur qui ressemblerait à un effondrement.
+            for _rk in ('adaptive_resilience', 'continuous_resilience'):
+                if all_metrics.get(_rk) is None:
+                    all_metrics[_rk] = float('nan')
+
             # Appliquer safe_float_conversion à toutes les métriques
             # SAUF les champs textuels et ceux où NaN est intentionnel
-            skip_safe_convert = {'effort_status', 'G_arch_used', 'best_pair_G', 
-                                 'best_pair_gamma', 'best_pair_score', 'tau_A_mean', 'tau_f_mean'}
+            skip_safe_convert = {'effort_status', 'G_arch_used', 'best_pair_G',
+                                 'best_pair_gamma', 'best_pair_score', 'tau_A_mean', 'tau_f_mean',
+                                 'adaptive_resilience', 'continuous_resilience',
+                                 'resilience_env(t)', 'resilience_metric_used', 'perception_filter'}
             for key in all_metrics:
                 if key in skip_safe_convert:
                     continue
@@ -736,7 +994,9 @@ def run_fps_simulation(config, state, loggers, strict=False):
             
             # ----------- 4. VÉRIFICATION NaN/Inf SYSTÉMATIQUE -------------
             # Champs où NaN est intentionnel (= pas de données disponibles)
-            nan_ok_fields = {'best_pair_gamma', 'best_pair_score', 'tau_A_mean', 'tau_f_mean'}
+            nan_ok_fields = {'best_pair_gamma', 'best_pair_score', 'tau_A_mean', 'tau_f_mean',
+                             'adaptive_resilience', 'continuous_resilience',
+                             'resilience_env(t)', 'resilience_metric_used', 'perception_filter'}
             nan_inf_detected = False
             for metric_name, metric_value in all_metrics.items():
                 if metric_name == 't' or metric_name in nan_ok_fields:
@@ -838,6 +1098,7 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 'C': C_t, 'A_spiral': A_spiral_t, 'entropy_S': entropy_S,
                 'delta_fn': delta_fn_t, 'S(t)': S_t, 'C(t)': C_t,
                 'effort(t)': effort_t, 'cpu_step(t)': cpu_step,
+                'wall_time_step(t)': wall_time_step if 'wall_time_step' in locals() else 0.0,
                 'A_mean(t)': A_mean_t, 'f_mean(t)': f_mean_t,
                 'variance_d2S': variance_d2S, 'fluidity': fluidity,
                 'mean_abs_error': mean_abs_error,
@@ -850,6 +1111,14 @@ def run_fps_simulation(config, state, loggers, strict=False):
                 'An_mean(t)': A_mean_t,
                 'fn_mean(t)': f_mean_t,
                 'continuous_resilience': continuous_resilience,
+                'mu_Rloc(t)': mu_Rloc_t,
+                'resilience_env(t)': (env_result['value'] if env_result else None),
+                'D_excursion(t)': (env_result['D'] if env_result else 0.0),
+                'D_mean(t)': (env_result['D_mean'] if env_result else 0.0),
+                'D_max(t)': (env_result['D_max'] if env_result else 0.0),
+                'D_rms(t)': (env_result['D_rms'] if env_result else 0.0),
+                'resilience_metric_used': (env_result['metric_used'] if env_result else None),
+                'perception_filter': perception_state['filter'],
                 'adaptive_resilience': adaptive_resilience,
                 'adaptive_resilience_score': adaptive_resilience_score,
                 'gamma': gamma_t,
@@ -910,9 +1179,9 @@ def run_fps_simulation(config, state, loggers, strict=False):
                                 with open(os.path.join(loggers['output_dir'], f"alerts_{run_id}.log"), "a") as alert_file:
                                     alert_file.write(f"{alert_msg}\n")
 
-            # Ajouter après chaque writerow
-            if config.get('debug', False):
-                print(f"[DEBUG] t={t:.2f}: S={S_t:.4f}, effort={effort_t:.4f}")
+            # (print [DEBUG] par pas retiré — item catalogue « ne garder que
+            # le log normal ». Le garde config.get('debug', False) était de
+            # toute façon truthy par accident : 'debug' est un dict en config.)
 
         # -- FERMETURE DES FICHIERS INDIVIDUELS --
         if N > 10 and individual_csv_writers:
@@ -948,9 +1217,12 @@ def run_fps_simulation(config, state, loggers, strict=False):
         # Calculer la moyenne de continuous_resilience depuis l'historique
         continuous_resilience_values = []
         for h in history:
-            if 'continuous_resilience' in h:
-                continuous_resilience_values.append(h['continuous_resilience'])
-        continuous_resilience_mean = np.mean(continuous_resilience_values) if continuous_resilience_values else float(continuous_resilience) if continuous_resilience is not None else 1.0
+            v = h.get('continuous_resilience')
+            if v is not None:  # un verdict suspendu (None) ne compte pas
+                continuous_resilience_values.append(v)
+        continuous_resilience_mean = (np.mean(continuous_resilience_values) if continuous_resilience_values
+                                       else float(continuous_resilience) if continuous_resilience is not None
+                                       else float('nan'))
         
         # Calculer moyennes sur l'historique pour cohérence avec système adaptatif
         entropy_history = [h.get('entropy_S', 0.5) for h in history if 'entropy_S' in h]
@@ -969,9 +1241,13 @@ def run_fps_simulation(config, state, loggers, strict=False):
             'final_mean_abs_error': float(mean_abs_error) if mean_abs_error is not None else 0.0,
             'mean_C': float(np.mean(C_history)) if C_history else float('nan'),
             'resilience_t_retour': float(t_retour) if t_retour is not None else 0.0,
-            'continuous_resilience': float(continuous_resilience) if continuous_resilience is not None else 1.0,
+            'continuous_resilience': float(continuous_resilience) if continuous_resilience is not None else float('nan'),
             'continuous_resilience_mean': float(continuous_resilience_mean),
-            'adaptive_resilience': float(adaptive_resilience) if 'adaptive_resilience' in locals() else 0.0,
+            # None = verdict suspendu (run trop court sous perturbation) → NaN,
+            # jamais float(None) qui crasherait, ni un 0.0/1.0 trompeur.
+            'adaptive_resilience': (float(adaptive_resilience)
+                                    if 'adaptive_resilience' in locals() and adaptive_resilience is not None
+                                    else float('nan')),
             'adaptive_resilience_score': int(adaptive_resilience_score) if 'adaptive_resilience_score' in locals() else 3,
             'stability_ratio': float(max_median_ratio) if max_median_ratio is not None else 1.0,
             'total_steps': len(t_array),
@@ -1094,9 +1370,11 @@ def run_kuramoto_simulation(config, loggers):
             
             # Signal global (somme des oscillateurs)
             S_t = np.sum(np.sin(phases))
-            
-            cpu_step = (time.perf_counter() - step_start) / N
-            
+
+            # Temps mur (profilage) vs coût déterministe (reproductible)
+            wall_time_step = (time.perf_counter() - step_start) / N
+            cpu_step = metrics.compute_cpu_step_deterministic(N) if hasattr(metrics, 'compute_cpu_step_deterministic') else 0.0
+
             # Log
             metrics_dict = {
                 't': t,
@@ -1105,6 +1383,7 @@ def run_kuramoto_simulation(config, loggers):
                 'E(t)': order_param,
                 'L(t)': 0,
                 'cpu_step(t)': cpu_step,
+                'wall_time_step(t)': wall_time_step,
                 'effort(t)': 0.0,
                 'A_mean(t)': 1.0,
                 'f_mean(t)': np.mean(frequencies),
@@ -1185,8 +1464,10 @@ def run_neutral_simulation(config, loggers):
         E_t = np.max(amplitudes)
         L_t = 0
         
-        cpu_step = (time.perf_counter() - step_start) / N
-        
+        # Temps mur (profilage) vs coût déterministe (reproductible)
+        wall_time_step = (time.perf_counter() - step_start) / N
+        cpu_step = metrics.compute_cpu_step_deterministic(N) if hasattr(metrics, 'compute_cpu_step_deterministic') else 0.0
+
         # Log
         metrics_dict = {
             't': t,
@@ -1195,6 +1476,7 @@ def run_neutral_simulation(config, loggers):
             'E(t)': E_t,
             'L(t)': L_t,
             'cpu_step(t)': cpu_step,
+            'wall_time_step(t)': wall_time_step,
             'effort(t)': 0.0,
             'A_mean(t)': 1.0,
             'f_mean(t)': np.mean(frequencies),

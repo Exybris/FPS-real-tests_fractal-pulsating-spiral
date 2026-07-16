@@ -547,7 +547,45 @@ def generate_visualizations(results: Dict, config: Dict, dirs: Dict) -> Dict[str
             except Exception as e:
                 print(f"    ⚠️ plot_scores_evolution : {e}")
 
-            # 10. Résilience adaptative
+            # 10. Scores du signal : S(t) perçu vs O(t) brut (item catalogue)
+            try:
+                print("  → Scores S(t) vs O(t)...")
+                path_svo = os.path.join(dirs['figures'], 'signal_scores_S_vs_O.png')
+                fig_svo = FPS_MODULES['visualize'].plot_signal_scores_S_vs_O(
+                    history, config, save_path=path_svo
+                )
+                if fig_svo is not None:
+                    figures_paths['signal_scores_S_vs_O'] = path_svo
+            except Exception as e:
+                print(f"    ⚠️ plot_signal_scores_S_vs_O : {e}")
+
+            # 10bis. Mêmes visualisations de scores, calculées sur O(t) (item catalogue)
+            try:
+                print("  → Scores sur O(t) : évolution + grille...")
+                shadow_O = FPS_MODULES['visualize'].build_O_based_history(history, config)
+                if shadow_O:
+                    _calc_fn = getattr(FPS_MODULES.get('metrics'), 'calculate_all_scores', None)
+                    res_O = FPS_MODULES['visualize'].plot_scores_evolution(
+                        shadow_O, config, calculate_all_scores=_calc_fn
+                    )
+                    if res_O is not None:
+                        fig_O, _, _ = res_O
+                        path_O = os.path.join(dirs['figures'], 'scores_evolution_O.png')
+                        fig_O.savefig(path_O, dpi=150, bbox_inches='tight')
+                        figures_paths['scores_evolution_O'] = path_O
+                        plt.close(fig_O)
+                    scores_nb_O = FPS_MODULES['visualize'].calculate_empirical_scores_notebook(
+                        shadow_O, config
+                    )
+                    fig_grid_O = FPS_MODULES['visualize'].create_empirical_grid(scores_nb_O)
+                    path_grid_O = os.path.join(dirs['figures'], 'empirical_grid_O.png')
+                    fig_grid_O.savefig(path_grid_O, dpi=150, bbox_inches='tight')
+                    figures_paths['empirical_grid_O'] = path_grid_O
+                    plt.close(fig_grid_O)
+            except Exception as e:
+                print(f"    ⚠️ scores sur O(t) : {e}")
+
+            # 11. Résilience adaptative
             try:
                 print("  → Résilience adaptative...")
                 fig10 = FPS_MODULES['visualize'].plot_adaptive_resilience(history)
@@ -613,12 +651,22 @@ def generate_visualizations(results: Dict, config: Dict, dirs: Dict) -> Dict[str
             # 14. Patterns par strate (sauvegarde en interne dans output_dir)
             try:
                 print("  → Patterns par strate...")
-                FPS_MODULES['visualize'].visualize_stratum_patterns(
+                _res_strat = FPS_MODULES['visualize'].visualize_stratum_patterns(
                     history, config, output_dir=dirs['figures'], show=False
                 )
-                figures_paths['stratum_patterns'] = os.path.join(
-                    dirs['figures'], 'stratum_annulation_patterns.png'
-                )
+                if _res_strat is not None:
+                    figures_paths['stratum_patterns'] = os.path.join(
+                        dirs['figures'], 'stratum_annulation_patterns.png'
+                    )
+                elif hasattr(FPS_MODULES['visualize'], 'visualize_stratum_patterns_from_csvs'):
+                    # Repli : reconstruire depuis les fichiers A_n/f_n du run
+                    _fig_csv = FPS_MODULES['visualize'].visualize_stratum_patterns_from_csvs(
+                        logs_dir='logs', config=config, output_dir=dirs['figures'], show=False
+                    )
+                    if _fig_csv is not None:
+                        figures_paths['stratum_patterns'] = os.path.join(
+                            dirs['figures'], 'stratum_patterns_from_csvs.png'
+                        )
             except Exception as e:
                 print(f"    ⚠️ visualize_stratum_patterns : {e}")
 
@@ -737,6 +785,15 @@ def generate_visualizations(results: Dict, config: Dict, dirs: Dict) -> Dict[str
     return figures_paths
 
 
+def _safe_score(x, default=3):
+    """int(round(x)) robuste : NaN/None/inf -> neutre (jamais un crash)."""
+    try:
+        xf = float(x)
+        return int(round(xf)) if np.isfinite(xf) else default
+    except (TypeError, ValueError):
+        return default
+
+
 def generate_final_report(results: Dict, exploration_results: Dict, 
                          analysis_result: Optional[Dict], config: Dict, 
                          dirs: Dict) -> str:
@@ -837,13 +894,16 @@ def calculate_empirical_scores(metrics: Dict, config: Dict = None, history: List
             if current_scores:
                 # Mapper vers la grille empirique
                 return {
-                    'Stabilité': int(round(current_scores.get('stability', 3))),
-                    'Régulation': int(round(current_scores.get('regulation', 3))),
-                    'Fluidité': int(round(current_scores.get('fluidity', 3))),
-                    'Résilience': int(round(current_scores.get('resilience', 3))),
-                    'Innovation': int(round(current_scores.get('innovation', 3))),
-                    'Coût CPU': int(round(current_scores.get('cpu_cost', 3))),
-                    'Effort interne': int(round(current_scores.get('effort', 3)))
+                    # Garde NaN (14/07/2026) : un score non calculable (fenêtre
+                    # vide, verdict suspendu propagé) tombe sur le neutre 3 au
+                    # lieu de faire planter le rapport (int(NaN) -> crash).
+                    'Stabilité': _safe_score(current_scores.get('stability', 3)),
+                    'Régulation': _safe_score(current_scores.get('regulation', 3)),
+                    'Fluidité': _safe_score(current_scores.get('fluidity', 3)),
+                    'Résilience': _safe_score(current_scores.get('resilience', 3)),
+                    'Innovation': _safe_score(current_scores.get('innovation', 3)),
+                    'Coût CPU': _safe_score(current_scores.get('cpu_cost', 3)),
+                    'Effort interne': _safe_score(current_scores.get('effort', 3))
                 }
         except Exception as e:
             print(f"  ⚠️ Erreur système adaptatif, fallback : {e}")
